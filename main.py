@@ -212,7 +212,7 @@ def main(page: ft.Page):
         page.add(
             ft.Container(
                 content=ft.Column([
-                    ft.Icon(ft.icons.PHARMACY, size=50, color="blue"),
+                    ft.Icon(ft.icons.LOCAL_PHARMACY, size=50, color="blue"),
                     ft.Text("MASTER MP", size=24, weight="bold"),
                     user_tf, pass_tf, error_txt,
                     ft.ElevatedButton("Ingresar", on_click=auth)
@@ -480,4 +480,5 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     # Configuración de puerto para Render
     port = int(os.environ.get("PORT", 8080))
+
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
