@@ -118,17 +118,13 @@ db = DBManager()
 def log_audit(user, action, details):
     db.execute_query("INSERT INTO audit_trail (user_name, action, details) VALUES (%s, %s, %s)", (user, action, details))
 
-# --- INICIO DE LA NUEVA FUNCIÓN ---
-def generate_pdf(page, filename, content_dict, test_results):
-    """
-    Genera el PDF en el servidor, lo convierte a código Base64
-    y fuerza la descarga en el navegador del usuario.
-    """
+# --- FUNCIÓN PDF CORREGIDA (Método Javascript) ---
+def open_pdf_in_browser(page, filename, content_dict, test_results):
     try:
         pdf = FPDF()
         pdf.add_page()
         
-        # --- DISEÑO DEL PDF (IGUAL QUE ANTES) ---
+        # --- DISEÑO DEL PDF ---
         pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
         pdf.set_font("Arial", size=10)
@@ -144,7 +140,7 @@ def generate_pdf(page, filename, content_dict, test_results):
         
         pdf.ln(5)
         
-        # Tabla de Resultados
+        # Tabla
         pdf.set_fill_color(240, 240, 240)
         pdf.set_font("Arial", "B", 10)
         pdf.cell(60, 8, "Prueba", 1, fill=True)
@@ -153,10 +149,9 @@ def generate_pdf(page, filename, content_dict, test_results):
         
         pdf.set_font("Arial", size=10)
         for test in test_results:
-            # Usamos .get() para evitar errores si faltan datos
-            t_name = str(test.get('test', ''))
-            t_spec = str(test.get('spec', ''))
-            t_res = str(test.get('result', ''))
+            t_name = str(test.get('test', '') or '')
+            t_spec = str(test.get('spec', '') or '')
+            t_res = str(test.get('result', '') or '')
             
             pdf.cell(60, 8, t_name, 1)
             pdf.cell(70, 8, t_spec, 1)
@@ -170,23 +165,30 @@ def generate_pdf(page, filename, content_dict, test_results):
             pdf.set_font("Arial", size=10)
             pdf.multi_cell(0, 6, str(content_dict["Observaciones"]))
 
-        # --- AQUÍ ESTÁ LA MAGIA WEB ---
-        # 1. Guardar temporalmente en el servidor
-        temp_path = "/tmp/temp_cert.pdf" 
+        # --- GENERACIÓN Y DESCARGA ---
+        # 1. Guardar temporalmente
+        temp_path = "/tmp/temp_cert.pdf"
         pdf.output(temp_path)
         
-        # 2. Leer ese archivo y convertirlo a código Base64
+        # 2. Convertir a Base64
         with open(temp_path, "rb") as f:
             b64_pdf = base64.b64encode(f.read()).decode('utf-8')
         
-        # 3. Lanzar la descarga en el navegador
-        # Esto le dice a Flet: "Abre esta URL especial que contiene el PDF"
-        page.launch_url(f"data:application/pdf;base64,{b64_pdf}")
+        # 3. TRUCO JAVASCRIPT: Crear un enlace invisible y darle clic automáticamente
+        # Esto evita el problema de "about:blank" por URL muy larga
+        page.run_js(f"""
+            var link = document.createElement('a');
+            link.href = "data:application/pdf;base64,{b64_pdf}";
+            link.download = "{filename}";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        """)
         
         return True
-
+    
     except Exception as e:
-        print(f"Error generando PDF: {e}")
+        logger.error(f"Error PDF: {e}")
         return False
 # --- FIN DE LA NUEVA FUNCIÓN ---
 # --- UI ---
