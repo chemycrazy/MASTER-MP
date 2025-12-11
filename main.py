@@ -5,7 +5,7 @@ import logging
 import json
 import math
 import datetime
-import base64  # <--- IMPORTANTE PARA DESCARGAR PDF
+import base64  # <--- CRÍTICO PARA DESCARGAR PDF
 from contextlib import contextmanager
 from fpdf import FPDF
 
@@ -47,6 +47,7 @@ class DBManager:
             return None
 
     def init_db(self):
+        # Definición de tablas COMPLETA
         commands = [
             """CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -119,67 +120,70 @@ class DBManager:
 db = DBManager()
 
 # --- FUNCIONES AUXILIARES ---
+
 def log_audit(user, action, details):
+    """Registra en base de datos"""
     db.execute_query("INSERT INTO audit_trail (user_name, action, details) VALUES (%s, %s, %s)", (user, action, details))
 
-# --- GENERADOR PDF CORREGIDO (BASE64) ---
 def open_pdf_in_browser(page, filename, content_dict, test_results):
-    """Genera el PDF y lo lanza al navegador para descarga"""
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Encabezado
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
-    pdf.set_font("Arial", size=10)
-    pdf.ln(5)
-
-    # Datos Generales
-    for key, value in content_dict.items():
-        if key != "Observaciones":
-            pdf.set_font("Arial", "B", 10)
-            pdf.cell(50, 8, txt=f"{key}:", border=0)
-            pdf.set_font("Arial", size=10)
-            pdf.cell(0, 8, txt=str(value), ln=1, border=0)
-    
-    pdf.ln(5)
-    
-    # Tabla
-    pdf.set_fill_color(240, 240, 240)
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(60, 8, "Prueba", 1, fill=True)
-    pdf.cell(70, 8, "Especificacion", 1, fill=True)
-    pdf.cell(60, 8, "Resultado", 1, ln=1, fill=True)
-    
-    pdf.set_font("Arial", size=10)
-    for test in test_results:
-        # Usamos .get() para evitar errores si falta alguna clave
-        pdf.cell(60, 8, str(test.get('test', '')), 1)
-        pdf.cell(70, 8, str(test.get('spec', '')), 1)
-        pdf.cell(60, 8, str(test.get('result', '')), 1, ln=1)
-
-    # Observaciones
-    pdf.ln(10)
-    if "Observaciones" in content_dict:
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(0, 8, "Dictamen / Obs:", ln=1)
-        pdf.set_font("Arial", size=10)
-        pdf.multi_cell(0, 6, str(content_dict["Observaciones"]))
-
-    # GUARDAR Y LEER COMO BYTES
-    temp_path = "/tmp/temp_cert.pdf"
+    """Genera el PDF y lo lanza al navegador para descarga (FIXED)"""
     try:
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # Encabezado
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
+        pdf.set_font("Arial", size=10)
+        pdf.ln(5)
+
+        # Datos Generales
+        for key, value in content_dict.items():
+            if key != "Observaciones":
+                pdf.set_font("Arial", "B", 10)
+                pdf.cell(50, 8, txt=f"{key}:", border=0)
+                pdf.set_font("Arial", size=10)
+                pdf.cell(0, 8, txt=str(value), ln=1, border=0)
+        
+        pdf.ln(5)
+        
+        # Tabla
+        pdf.set_fill_color(240, 240, 240)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(60, 8, "Prueba", 1, fill=True)
+        pdf.cell(70, 8, "Especificacion", 1, fill=True)
+        pdf.cell(60, 8, "Resultado", 1, ln=1, fill=True)
+        
+        pdf.set_font("Arial", size=10)
+        for test in test_results:
+            pdf.cell(60, 8, str(test.get('test', '')), 1)
+            pdf.cell(70, 8, str(test.get('spec', '')), 1)
+            pdf.cell(60, 8, str(test.get('result', '')), 1, ln=1)
+
+        # Observaciones
+        pdf.ln(10)
+        if "Observaciones" in content_dict:
+            pdf.set_font("Arial", "B", 10)
+            pdf.cell(0, 8, "Dictamen / Obs:", ln=1)
+            pdf.set_font("Arial", size=10)
+            pdf.multi_cell(0, 6, str(content_dict["Observaciones"]))
+
+        # --- LÓGICA DE DESCARGA WEB ---
+        # Guardamos temporalmente en el sistema de archivos efímero
+        temp_path = "/tmp/temp_cert.pdf"
         pdf.output(temp_path)
+        
+        # Leemos el archivo como binario y lo convertimos a base64
         with open(temp_path, "rb") as f:
             b64_pdf = base64.b64encode(f.read()).decode('utf-8')
         
-        # Lanzar URL Data
+        # Le decimos al navegador que abra este "archivo virtual"
         page.launch_url(f"data:application/pdf;base64,{b64_pdf}")
         return True
+    
     except Exception as e:
         logger.error(f"Error generando PDF: {e}")
         return False
-
 # --- UI PRINCIPAL ---
 def main(page: ft.Page):
     page.title = "MASTER MP - PWA"
@@ -364,52 +368,74 @@ def main(page: ft.Page):
 
         content_column.controls = [ft.Text("Recepción", size=20, weight="bold"), mat_dd, lot_int, lot_ven, mfg, qty, expiry, ft.ElevatedButton("Ingresar", on_click=receive)]
         page.update()
-
-    # 4. MUESTREO
+        # 4. MUESTREO (FÓRMULA N+1)
     def build_sampling_view():
         items = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.quantity FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status='CUARENTENA'", fetch=True) or []
         lv = ft.ListView(expand=True, spacing=10)
 
         def open_dlg(iid, name, lot, qty):
-            tf_n = ft.TextField(label="N Envases", on_change=lambda e: setattr(txt_f, 'value', f"Abrir: {math.ceil(math.sqrt(int(e.control.value or 0)) + 1)}") or page.update())
-            txt_f = ft.Text("Abrir: 0", color="blue")
-            tf_rem = ft.TextField(label="Kg Muestreados")
+            # Lógica reactiva para fórmula
+            tf_n = ft.TextField(
+                label="N Envases", 
+                keyboard_type=ft.KeyboardType.NUMBER,
+                on_change=lambda e: setattr(txt_f, 'value', f"Abrir: {math.ceil(math.sqrt(int(e.control.value or 0)) + 1)}") or page.update()
+            )
+            txt_f = ft.Text("Abrir: 0", color="blue", weight="bold")
+            tf_rem = ft.TextField(label="Kg Muestreados", keyboard_type=ft.KeyboardType.NUMBER)
             
             def save(e):
-                rem = float(tf_rem.value or 0)
-                if rem > 0 and rem <= qty:
-                    db.execute_query("UPDATE inventory SET quantity=%s, status='MUESTREADO' WHERE id=%s", (qty-rem, iid))
-                    log_audit(current_user["name"], "SAMPLE", f"{lot} -{rem}kg")
-                    page.dialog.open = False
-                    build_sampling_view()
-                    page.update()
+                try:
+                    rem = float(tf_rem.value or 0)
+                    if rem > 0 and rem <= qty:
+                        db.execute_query("UPDATE inventory SET quantity=%s, status='MUESTREADO' WHERE id=%s", (qty-rem, iid))
+                        log_audit(current_user["name"], "SAMPLE", f"{lot} -{rem}kg")
+                        page.dialog.open = False
+                        build_sampling_view()
+                        page.update()
+                        ft.SnackBar(ft.Text("Muestreo registrado")).open = True
+                    else:
+                        tf_rem.error_text = "Cantidad inválida"
+                        page.update()
+                except: pass
             
-            page.dialog = ft.AlertDialog(title=ft.Text(f"Muestreo {lot}"), content=ft.Column([tf_n, txt_f, tf_rem], tight=True), actions=[ft.ElevatedButton("Guardar", on_click=save)])
+            page.dialog = ft.AlertDialog(
+                title=ft.Text(f"Muestreo {lot}"), 
+                content=ft.Column([ft.Text(f"Stock: {qty}"), tf_n, txt_f, tf_rem], tight=True), 
+                actions=[ft.ElevatedButton("Guardar", on_click=save)]
+            )
             page.dialog.open = True
             page.update()
 
         for i in items:
-            lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(i[1]), subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]}"), trailing=ft.IconButton(ft.icons.CUT, on_click=lambda e, x=i: open_dlg(x[0], x[1], x[2], x[3])))))
+            lv.controls.append(ft.Card(content=ft.ListTile(
+                title=ft.Text(i[1]), 
+                subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]}"), 
+                trailing=ft.IconButton(ft.icons.CUT, on_click=lambda e, x=i: open_dlg(x[0], x[1], x[2], x[3]))
+            )))
         content_column.controls = [ft.Text("Muestreo", size=20, weight="bold"), lv]
         page.update()
 
-    # 5. LAB (CORREGIDO PARA PDF WEB)
+    # 5. LABORATORIO (CON PDF BASE64)
     def build_lab_view():
         pending = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.material_id FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status='MUESTREADO'", fetch=True) or []
         lv = ft.ListView(expand=True, spacing=10)
 
         def open_analysis(inv_id, mat_id, mat_name, lot):
             profile = db.execute_query("SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id = %s", (mat_id,), fetch=True)
-            if not profile: return
+            if not profile: 
+                ft.SnackBar(ft.Text("Sin perfil de pruebas")).open = True
+                page.update()
+                return
             
             tf_num = ft.TextField(label="No. Análisis")
             tf_ref = ft.TextField(label="Referencia")
             tf_obs = ft.TextField(label="Obs", multiline=True)
-            tf_re = ft.TextField(label="Fecha Reanálisis")
+            tf_re = ft.TextField(label="Fecha Reanálisis (YYYY-MM-DD)")
             dd_con = ft.Dropdown(label="Dictamen", options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")], value="APROBADO")
             inputs = [ft.TextField(label=f"{p[0]} ({p[1]})", data={"test": p[0], "spec": p[1]}) for p in profile]
 
             def save(e):
+                if not tf_num.value: return
                 res_json = {f.data['test']: f.value for f in inputs}
                 res_list = [{"test": f.data['test'], "spec": f.data['spec'], "result": f.value} for f in inputs]
                 
@@ -423,7 +449,7 @@ def main(page: ft.Page):
                 build_lab_view()
                 page.update()
                 
-                # LLAMADA A LA NUEVA FUNCION PDF
+                # --- LLAMADA CRÍTICA AL PDF ---
                 open_pdf_in_browser(page, f"CoA_{lot}.pdf", {"Producto": mat_name, "Lote": lot, "Analisis": tf_num.value, "Dictamen": dd_con.value, "Observaciones": tf_obs.value}, res_list)
 
             page.dialog = ft.AlertDialog(title=ft.Text(f"Analisis {lot}"), content=ft.Column([tf_num, tf_ref] + inputs + [tf_obs, dd_con, tf_re], scroll=ft.ScrollMode.ALWAYS, height=500), actions=[ft.ElevatedButton("Guardar", on_click=save)])
@@ -435,7 +461,7 @@ def main(page: ft.Page):
         content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
         page.update()
 
-    # 6. CONSULTA (CORREGIDO PARA PDF WEB)
+    # 6. CONSULTA (REIMPRESIÓN PDF)
     def build_query_view():
         tf_search = ft.TextField(label="Buscar Lote/Nombre", suffix_icon=ft.icons.SEARCH)
         col_res = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
@@ -464,7 +490,7 @@ def main(page: ft.Page):
                     content_list.append(ft.Text(f"{s[0]}: {val} (Esp: {s[1]})"))
                     pdf_res.append({"test": s[0], "spec": s[1], "result": val})
                 
-                # LLAMADA A LA NUEVA FUNCION PDF
+                # Botón Reimprimir
                 btn_pdf = ft.ElevatedButton("Descargar PDF", on_click=lambda e: open_pdf_in_browser(page, "CoA.pdf", {"Producto": name, "Lote": lot, "Analisis": l[3], "Dictamen": l[2], "Observaciones": l[4]}, pdf_res))
                 content_list.append(btn_pdf)
             else:
@@ -478,7 +504,7 @@ def main(page: ft.Page):
         content_column.controls = [ft.Text("Consulta", size=20, weight="bold"), tf_search, col_res]
         search(None)
 
-    # 7. ADMIN (CORREGIDO PANTALLA BLANCA)
+    # 7. ADMIN (AUDIT TRAIL ARREGLADO)
     def build_audit_view():
         if current_user["role"] != "ADMIN":
             content_column.controls = [
@@ -490,7 +516,7 @@ def main(page: ft.Page):
         else:
             logs = db.execute_query("SELECT timestamp, user_name, action, details FROM audit_trail ORDER BY id DESC LIMIT 50", fetch=True) or []
             
-            # Usamos Column en vez de ListView para evitar conflictos de scroll
+            # Usamos Column Scrollable, no ListView
             log_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
             
             for l in logs:
