@@ -360,22 +360,129 @@ def main(page: ft.Page):
         content_column.controls = [ft.Text("Recepción"), mat_dd, lot_int, qty, ft.ElevatedButton("Guardar", on_click=receive)]
         page.update()
 
-    # 4. MUESTREO (Simplificado)
+# 4. MUESTREO (MEJORADO: Fórmula N+1 y Descuento de Inventario)
     def build_sampling_view():
-        items = db.execute_query("SELECT i.id, m.name, i.lot_internal FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status='CUARENTENA'", fetch=True)
-        lv = ft.ListView(expand=True)
-        for i in items:
-            lv.controls.append(ft.ListTile(
-                title=ft.Text(f"{i[1]} - {i[2]}"),
-                trailing=ft.IconButton(ft.icons.CONTENT_CUT, on_click=lambda e, iid=i[0]: do_sample(iid))
-            ))
-        content_column.controls = [ft.Text("Pendientes Muestreo"), lv]
-        page.update()
-    
-    def do_sample(iid):
-        db.execute_query("UPDATE inventory SET status='MUESTREADO' WHERE id=%s", (iid,))
-        build_sampling_view()
+        # Traemos items en CUARENTENA con su cantidad actual
+        items = db.execute_query(
+            "SELECT i.id, m.name, i.lot_internal, i.quantity FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status='CUARENTENA'", 
+            fetch=True
+        ) or []
 
+        lv = ft.ListView(expand=True, spacing=10, padding=10)
+
+        def open_sampling_dialog(item_id, name, lot, current_qty):
+            # Campos de entrada
+            tf_n = ft.TextField(label="N° de Cuñetes/Envases (N)", keyboard_type=ft.KeyboardType.NUMBER, autofocus=True)
+            txt_formula = ft.Text("Envases a abrir (√N + 1): 0", size=16, weight="bold", color="blue")
+            
+            tf_removed = ft.TextField(label="Cantidad Muestreada (kg)", keyboard_type=ft.KeyboardType.NUMBER, value="0.0")
+            
+            # Texto informativo de stock actual
+            txt_stock = ft.Text(f"Stock actual: {current_qty} kg", size=12, color="grey")
+
+            # Función reactiva: Calcula la fórmula apenas el usuario escribe N
+            def calculate_formula(e):
+                try:
+                    if not tf_n.value:
+                        txt_formula.value = "Envases a abrir (√N + 1): 0"
+                    else:
+                        n = int(tf_n.value)
+                        # Fórmula farmacéutica estándar: Redondear hacia arriba (Raíz de n) + 1
+                        result = math.ceil(math.sqrt(n) + 1)
+                        txt_formula.value = f"Envases a abrir (√N + 1): {result}"
+                    page.update()
+                except ValueError:
+                    pass # Si escribe letras no hacemos nada
+
+            tf_n.on_change = calculate_formula
+
+            def save_sampling(e):
+                try:
+                    qty_removed = float(tf_removed.value)
+                    
+                    if qty_removed <= 0:
+                        tf_removed.error_text = "Debe ser mayor a 0"
+                        page.update()
+                        return
+                    
+                    if qty_removed > current_qty:
+                        tf_removed.error_text = "No puedes muestrear más de lo que existe"
+                        page.update()
+                        return
+
+                    # 1. Calcular nuevo inventario
+                    new_qty = current_qty - qty_removed
+                    
+                    # 2. Actualizar DB: Cambia estado a MUESTREADO y actualiza cantidad
+                    db.execute_query(
+                        "UPDATE inventory SET quantity=%s, status='MUESTREADO' WHERE id=%s",
+                        (new_qty, item_id)
+                    )
+                    
+                    # 3. Registrar en Audit Trail
+                    log_audit(
+                        current_user["name"], 
+                        "SAMPLING", 
+                        f"Muestreo Lote {lot}. Envases: {tf_n.value}. Retirado: {qty_removed}kg. Stock Final: {new_qty}kg"
+                    )
+
+                    page.dialog.open = False
+                    ft.SnackBar(ft.Text(f"Muestreo registrado. Nuevo stock: {new_qty} kg")).open = True
+                    build_sampling_view() # Recargar lista
+                    page.update()
+
+                except ValueError:
+                    tf_removed.error_text = "Número inválido"
+                    page.update()
+                except Exception as ex:
+                    logger.error(f"Error sampling: {ex}")
+
+            # Construcción del Dialog
+            dlg = ft.AlertDialog(
+                title=ft.Text(f"Muestreo: {name}"),
+                content=ft.Column([
+                    ft.Text(f"Lote: {lot}"),
+                    txt_stock,
+                    ft.Divider(),
+                    ft.Text("Cálculo de Muestra (OMS/GMP):"),
+                    tf_n,
+                    txt_formula,
+                    ft.Divider(),
+                    ft.Text("Ejecución:"),
+                    tf_removed
+                ], tight=True, width=300),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda e: setattr(dlg, 'open', False) or page.update()),
+                    ft.ElevatedButton("Confirmar Muestreo", on_click=save_sampling)
+                ]
+            )
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
+
+        # Renderizar la lista
+        if not items:
+            lv.controls.append(ft.Text("No hay materiales en Cuarentena pendientes de muestreo."))
+        
+        for i in items:
+            # i = [id, name, lot_internal, quantity]
+            lv.controls.append(
+                ft.Card(
+                    content=ft.ListTile(
+                        leading=ft.Icon(ft.icons.SCIENCE, color="orange"),
+                        title=ft.Text(f"{i[1]}"),
+                        subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]} kg"),
+                        trailing=ft.IconButton(
+                            ft.icons.ARROW_FORWARD_IOS, 
+                            tooltip="Realizar Muestreo",
+                            on_click=lambda e, iid=i[0], n=i[1], l=i[2], q=i[3]: open_sampling_dialog(iid, n, l, q)
+                        )
+                    )
+                )
+            )
+
+        content_column.controls = [ft.Text("Módulo de Muestreo", size=20, weight="bold"), lv]
+        page.update()
     # 5. LABORATORIO DINÁMICO
     def build_lab_view():
         # Busca items muestreados
@@ -605,3 +712,4 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
+
