@@ -577,7 +577,7 @@ def main(page: ft.Page):
 
         content_column.controls = [ft.Text("Módulo de Muestreo", size=20, weight="bold"), lv]
         page.update()
-    # 5. LABORATORIO DINÁMICO (Con Análisis #, Referencia, Obs, Reanálisis)
+    # 5. LABORATORIO DINÁMICO
     def build_lab_view():
         # Busca items muestreados
         pending = db.execute_query(
@@ -586,148 +586,18 @@ def main(page: ft.Page):
                WHERE i.status='MUESTREADO'""", fetch=True
         ) or []
 
-        lv = ft.ListView(expand=True, spacing=10)
+        lv = ft.ListView(expand=True)
 
         def open_analysis(inv_id, mat_id, mat_name, lot):
-            # 1. Cargar el perfil de pruebas
+            # 1. Cargar el perfil de pruebas de este material
             profile_tests = db.execute_query(
                 "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id = %s",
                 (mat_id,), fetch=True
             )
             
             if not profile_tests:
-                ft.SnackBar(ft.Text("⚠️ Material sin perfil de pruebas configurado.")).open = True
+                ft.SnackBar(ft.Text("Este material no tiene pruebas configuradas en el Catálogo.")).open = True
                 page.update()
-                return
-
-            # --- NUEVOS CAMPOS DE ENCABEZADO ---
-            tf_num_analisis = ft.TextField(label="No. de Análisis", expand=True)
-            tf_referencia = ft.TextField(label="Ref. Bibliográfica (Ej: USP 44)", expand=True)
-            
-            # Generar campos dinámicos de resultados
-            input_fields = []
-            for pt in profile_tests:
-                field = ft.TextField(label=f"{pt[0]} (Esp: {pt[1]})", data={"test": pt[0], "spec": pt[1]})
-                input_fields.append(field)
-
-            # --- NUEVOS CAMPOS DE PIE DE PÁGINA ---
-            tf_obs = ft.TextField(label="Observaciones", multiline=True, min_lines=2)
-            tf_reanalisis = ft.TextField(
-                label="Fecha Reanálisis (YYYY-MM-DD)", 
-                hint_text="Ej: 2026-12-01",
-                keyboard_type=ft.KeyboardType.DATETIME
-            )
-            concl_dd = ft.Dropdown(
-                label="Dictamen Final", 
-                options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")],
-                value="APROBADO"
-            )
-
-            def save_results(e):
-                # Validar campos obligatorios básicos
-                if not tf_num_analisis.value:
-                    tf_num_analisis.error_text = "Requerido"
-                    page.update()
-                    return
-
-                # Recolectar resultados dinámicos
-                results_json = {}
-                results_list_for_pdf = []
-                
-                for f in input_fields:
-                    val = f.value
-                    results_json[f.data['test']] = val
-                    results_list_for_pdf.append({"test": f.data['test'], "spec": f.data['spec'], "result": val})
-                
-                try:
-                    # Guardar en Base de Datos
-                    query = """
-                        INSERT INTO lab_results 
-                        (inventory_id, analyst, result_data, conclusion, analysis_num, bib_reference, reanalysis_date, observations) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """
-                    params = (
-                        inv_id, 
-                        current_user["name"], 
-                        json.dumps(results_json), 
-                        concl_dd.value,
-                        tf_num_analisis.value,
-                        tf_referencia.value,
-                        tf_reanalisis.value or None, # Permite nulo si está vacío
-                        tf_obs.value
-                    )
-                    
-                    db.execute_query(query, params)
-                    
-                    # Actualizar estado de inventario
-                    new_status = "LIBERADO" if concl_dd.value == "APROBADO" else "RECHAZADO"
-                    db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (new_status, inv_id))
-                    
-                    # Generar PDF Completo
-                    pdf_data = {
-                        "Producto": mat_name,
-                        "Lote Interno": lot,
-                        "No. Análisis": tf_num_analisis.value,
-                        "Referencia": tf_referencia.value,
-                        "Fecha Reanálisis": tf_reanalisis.value,
-                        "Analista": current_user["name"],
-                        "Dictamen": concl_dd.value,
-                        "Observaciones": tf_obs.value
-                    }
-                    
-                    pdf_name = f"CoA_{lot}_{tf_num_analisis.value}.pdf"
-                    generate_pdf(pdf_name, pdf_data, results_list_for_pdf)
-                    
-                    page.dialog.open = False
-                    build_lab_view()
-                    ft.SnackBar(ft.Text(f"✅ Análisis guardado. PDF: {pdf_name}")).open = True
-                    page.update()
-
-                except Exception as ex:
-                    logger.error(f"Error guardando lab: {ex}")
-                    ft.SnackBar(ft.Text("Error al guardar. Verifique formato de fecha.")).open = True
-
-            # Diseño del Dialogo
-            dlg = ft.AlertDialog(
-                title=ft.Text(f"Análisis: {mat_name}"),
-                content=ft.Column([
-                    ft.Text("Datos Generales:", weight="bold"),
-                    ft.Row([tf_num_analisis, tf_referencia]), # En fila para ahorrar espacio
-                    ft.Divider(),
-                    ft.Text("Resultados:", weight="bold"),
-                    ft.Column(input_fields), # Lista de pruebas
-                    ft.Divider(),
-                    ft.Text("Conclusión:", weight="bold"),
-                    tf_obs,
-                    ft.Row([tf_reanalisis, concl_dd])
-                ], scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
-                actions=[
-                    ft.TextButton("Cancelar", on_click=lambda e: setattr(dlg, 'open', False) or page.update()),
-                    ft.ElevatedButton("Emitir Certificado", on_click=save_results)
-                ]
-            )
-            page.dialog = dlg
-            dlg.open = True
-            page.update()
-
-        # Renderizar lista de pendientes
-        if not pending:
-            lv.controls.append(ft.Text("No hay muestras pendientes en Laboratorio."))
-
-        for p in pending:
-            lv.controls.append(ft.Card(content=ft.ListTile(
-                leading=ft.Icon(ft.icons.BIOTECH),
-                title=ft.Text(p[1]),
-                subtitle=ft.Text(f"Lote: {p[2]}"),
-                trailing=ft.IconButton(
-                    ft.icons.PLAY_ARROW, 
-                    tooltip="Iniciar Análisis", 
-                    on_click=lambda e, i=p: open_analysis(i[0], i[3], i[1], i[2])
-                )
-            )))
-
-        content_column.controls = [ft.Text("Laboratorio de Control", size=20, weight="bold"), lv]
-        page.update()
                 return
 
             # 2. Generar campos dinámicos
