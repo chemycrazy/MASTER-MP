@@ -870,11 +870,83 @@ def main(page: ft.Page):
         ]
         # Cargar todo al inicio
         perform_search(None)     
+    # 7. AUDIT TRAIL (REDDISEÑADO PARA VERSE BIEN EN MOVIL)
     def build_audit_view():
-        # Vista simple de logs
-        content_column.controls = [ft.Text("Audit Trail disponible en base de datos.")]
-        page.update()
+        # 1. Verificación de Seguridad
+        if current_user["role"] != "ADMIN":
+            content_column.controls = [
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.BLOCK, size=50, color="red"),
+                        ft.Text("ACCESO DENEGADO", size=20, weight="bold"),
+                        ft.Text("Este módulo es exclusivo para Administradores.")
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    alignment=ft.alignment.center,
+                    padding=20
+                )
+            ]
+            page.update()
+            return
 
+        # 2. Botón de Refrescar
+        def refresh_logs(e):
+            build_audit_view()
+
+        # 3. Consulta a Base de Datos
+        # Traemos los últimos 100 movimientos
+        logs = db.execute_query(
+            "SELECT timestamp, user_name, action, details FROM audit_trail ORDER BY id DESC LIMIT 100", 
+            fetch=True
+        )
+
+        # 4. Construcción de la Lista
+        lv = ft.ListView(expand=True, spacing=10, padding=10)
+
+        if not logs:
+            lv.controls.append(ft.Text("No hay registros de auditoría aún."))
+        else:
+            for l in logs:
+                # l[0]=Time, l[1]=User, l[2]=Action, l[3]=Details
+                # Formateamos la fecha para que sea legible
+                fecha_str = str(l[0])[:19] 
+                
+                lv.controls.append(
+                    ft.Card(
+                        elevation=2,
+                        content=ft.Container(
+                            padding=10,
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"),
+                                    ft.Text(fecha_str, size=12, color="grey", weight="bold"),
+                                    ft.Container(expand=True),
+                                    ft.Badge(text=l[2], color="white", bgcolor="blue") # La Acción
+                                ]),
+                                ft.Divider(height=10, thickness=0.5),
+                                ft.Row([
+                                    ft.Text("Usuario:", weight="bold", size=12),
+                                    ft.Text(l[1], size=12)
+                                ]),
+                                ft.Text(f"{l[3]}", size=13, italic=True) # Detalles
+                            ])
+                        )
+                    )
+                )
+
+        # 5. Montaje Final
+        header = ft.Row(
+            [
+                ft.Text("Audit Trail (ALCOA)", size=20, weight="bold"),
+                ft.IconButton(ft.icons.REFRESH, on_click=refresh_logs, tooltip="Actualizar")
+            ], 
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+        )
+
+        content_column.controls = [
+            ft.Container(content=header, padding=10),
+            lv
+        ]
+        page.update()
     build_login()
 
 if __name__ == "__main__":
