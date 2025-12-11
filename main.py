@@ -370,7 +370,7 @@ def main(page: ft.Page):
                     content=ft.ListTile(
                         title=ft.Text(f"{item[1]} (Lote: {item[2]})"),
                         subtitle=ft.Text(f"Stock: {item[3]}kg | Muestra sug.: {sample_cal} u"),
-                        trailing=ft.IconButton(ft.icons.CUT, tooltip="Tomar Muestra", on_click=discount_sample)
+                        trailing=ft.IconButton(ft.icons.CONTENT_CUT, tooltip="Tomar Muestra", on_click=discount_sample)
                     )
                 )
             )
@@ -482,3 +482,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
 
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
+
