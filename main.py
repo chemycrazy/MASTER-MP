@@ -118,51 +118,77 @@ db = DBManager()
 def log_audit(user, action, details):
     db.execute_query("INSERT INTO audit_trail (user_name, action, details) VALUES (%s, %s, %s)", (user, action, details))
 
-def generate_pdf(filename, content_dict, test_results):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Encabezado
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
-    pdf.set_font("Arial", size=10)
-    pdf.ln(5)
-
-    # Datos Generales (Dos columnas simuladas)
-    for key, value in content_dict.items():
-        # Si es Observaciones, lo ponemos al final aparte
-        if key != "Observaciones":
-            pdf.set_font("Arial", "B", 10)
-            pdf.cell(50, 8, txt=f"{key}:", border=0)
-            pdf.set_font("Arial", size=10)
-            pdf.cell(0, 8, txt=str(value), ln=1, border=0)
-    
-    pdf.ln(5)
-    
-    # Tabla de Resultados
-    pdf.set_fill_color(200, 220, 255)
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(60, 8, "Prueba / Determinación", 1, fill=True)
-    pdf.cell(70, 8, "Especificación", 1, fill=True)
-    pdf.cell(60, 8, "Resultado", 1, ln=1, fill=True)
-    
-    pdf.set_font("Arial", size=10)
-    for test in test_results:
-        pdf.cell(60, 8, str(test['test']), 1)
-        pdf.cell(70, 8, str(test['spec']), 1)
-        # Resaltar si falló (lógica visual simple)
-        pdf.cell(60, 8, str(test['result']), 1, ln=1)
-
-    # Observaciones al pie
-    pdf.ln(10)
-    if "Observaciones" in content_dict:
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(0, 8, "Observaciones / Dictamen:", ln=1)
+# --- INICIO DE LA NUEVA FUNCIÓN ---
+def generate_pdf(page, filename, content_dict, test_results):
+    """
+    Genera el PDF en el servidor, lo convierte a código Base64
+    y fuerza la descarga en el navegador del usuario.
+    """
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # --- DISEÑO DEL PDF (IGUAL QUE ANTES) ---
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
         pdf.set_font("Arial", size=10)
-        pdf.multi_cell(0, 6, content_dict["Observaciones"])
+        pdf.ln(5)
 
-    pdf.output(filename)
-    return filename
+        # Datos Generales
+        for key, value in content_dict.items():
+            if key != "Observaciones":
+                pdf.set_font("Arial", "B", 10)
+                pdf.cell(50, 8, txt=f"{key}:", border=0)
+                pdf.set_font("Arial", size=10)
+                pdf.cell(0, 8, txt=str(value), ln=1, border=0)
+        
+        pdf.ln(5)
+        
+        # Tabla de Resultados
+        pdf.set_fill_color(240, 240, 240)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(60, 8, "Prueba", 1, fill=True)
+        pdf.cell(70, 8, "Especificacion", 1, fill=True)
+        pdf.cell(60, 8, "Resultado", 1, ln=1, fill=True)
+        
+        pdf.set_font("Arial", size=10)
+        for test in test_results:
+            # Usamos .get() para evitar errores si faltan datos
+            t_name = str(test.get('test', ''))
+            t_spec = str(test.get('spec', ''))
+            t_res = str(test.get('result', ''))
+            
+            pdf.cell(60, 8, t_name, 1)
+            pdf.cell(70, 8, t_spec, 1)
+            pdf.cell(60, 8, t_res, 1, ln=1)
+
+        # Observaciones
+        pdf.ln(10)
+        if "Observaciones" in content_dict:
+            pdf.set_font("Arial", "B", 10)
+            pdf.cell(0, 8, "Dictamen / Obs:", ln=1)
+            pdf.set_font("Arial", size=10)
+            pdf.multi_cell(0, 6, str(content_dict["Observaciones"]))
+
+        # --- AQUÍ ESTÁ LA MAGIA WEB ---
+        # 1. Guardar temporalmente en el servidor
+        temp_path = "/tmp/temp_cert.pdf" 
+        pdf.output(temp_path)
+        
+        # 2. Leer ese archivo y convertirlo a código Base64
+        with open(temp_path, "rb") as f:
+            b64_pdf = base64.b64encode(f.read()).decode('utf-8')
+        
+        # 3. Lanzar la descarga en el navegador
+        # Esto le dice a Flet: "Abre esta URL especial que contiene el PDF"
+        page.launch_url(f"data:application/pdf;base64,{b64_pdf}")
+        
+        return True
+
+    except Exception as e:
+        print(f"Error generando PDF: {e}")
+        return False
+# --- FIN DE LA NUEVA FUNCIÓN ---
 # --- UI ---
 def main(page: ft.Page):
     page.title = "MASTER MP - PWA"
@@ -677,7 +703,7 @@ def main(page: ft.Page):
                     }
                     
                     pdf_name = f"CoA_{lot}_{tf_num_analisis.value}.pdf"
-                    generate_pdf(pdf_name, pdf_data, results_list_for_pdf)
+                    generate_pdf(page, pdf_name, pdf_data, results_list_for_pdf)
                     
                     page.dialog.open = False
                     build_lab_view()
@@ -842,7 +868,7 @@ def main(page: ft.Page):
                 # Botón de Generar PDF
                 def print_coa(e):
                     pdf_name = f"CoA_REPRINT_{lot}.pdf"
-                    generate_pdf(pdf_name, 
+                    generate_pdf(page, pdf_name, 
                                  {"Producto": mat_name, "Lote": lot, "Fabricante": str(inv_data[1]), "Conclusión": conclusion}, 
                                  pdf_data_list)
                     ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}")).open = True
@@ -873,26 +899,49 @@ def main(page: ft.Page):
         perform_search(None)     
     # 7. AUDIT TRAIL (REDDISEÑADO PARA VERSE BIEN EN MOVIL)
     def build_audit_view():
-        # 1. Verificación de Seguridad
         if current_user["role"] != "ADMIN":
             content_column.controls = [
                 ft.Container(
-                    content=ft.Column([
-                        ft.Icon(ft.icons.BLOCK, size=50, color="red"),
-                        ft.Text("ACCESO DENEGADO", size=20, weight="bold"),
-                        ft.Text("Este módulo es exclusivo para Administradores.")
-                    ], alignment=ft.MainAxisAlignment.CENTER),
-                    alignment=ft.alignment.center,
-                    padding=20
+                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN", color="white", weight="bold"),
+                    bgcolor="red", padding=20, alignment=ft.alignment.center
                 )
             ]
-            page.update()
-            return
-
-        # 2. Botón de Refrescar
-        def refresh_logs(e):
-            build_audit_view()
-
+        else:
+            # Traer datos
+            logs = db.execute_query("SELECT timestamp, user_name, action, details FROM audit_trail ORDER BY id DESC LIMIT 50", fetch=True) or []
+            
+            # Usamos Column con scroll ACTIVADO. Esto arregla el error de pantalla blanca.
+            log_col = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True, spacing=10)
+            
+            if not logs:
+                log_col.controls.append(ft.Text("No hay registros."))
+            
+            for l in logs:
+                # Diseño tipo tarjeta (Card) que no falla en móvil
+                card = ft.Container(
+                    padding=10, 
+                    border=ft.border.all(1, ft.colors.GREY_300), 
+                    border_radius=8,
+                    bgcolor="white",
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(str(l[0])[:19], size=12, weight="bold", color="blue"), # Fecha
+                            ft.Container(content=ft.Text(l[2], size=10, color="white"), bgcolor="black", padding=5, border_radius=4) # Acción
+                        ], alignment="spaceBetween"),
+                        ft.Text(f"Usuario: {l[1]}", size=12, weight="bold"),
+                        ft.Text(f"{l[3]}", size=12, italic=True) # Detalles
+                    ])
+                )
+                log_col.controls.append(card)
+            
+            content_column.controls = [
+                ft.Text("Auditoría del Sistema (Audit Trail)", size=20, weight="bold"),
+                ft.Divider(),
+                ft.Container(content=log_col, expand=True, height=500) # Forzamos altura o expandimos
+            ]
+            
+        page.update()
+            
         # 3. Consulta a Base de Datos
         # Traemos los últimos 100 movimientos
         logs = db.execute_query(
