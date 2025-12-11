@@ -342,24 +342,101 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    # 3. ALMACÉN (Igual que antes, simplificado para contexto)
+    # 3. ALMACÉN (RECEPCIÓN COMPLETA)
     def build_inventory_view():
-        materials = db.execute_query("SELECT id, name FROM materials WHERE is_active=TRUE", fetch=True)
-        mat_opts = [ft.dropdown.Option(str(m[0]), m[1]) for m in materials] if materials else []
+        # Cargar lista de materias primas activas
+        materials = db.execute_query("SELECT id, name, code FROM materials WHERE is_active=TRUE ORDER BY name", fetch=True)
+        # Creamos opciones mostrando Nombre + Código
+        mat_opts = [ft.dropdown.Option(key=str(m[0]), text=f"{m[1]} ({m[2]})") for m in materials] if materials else []
         
-        mat_dd = ft.Dropdown(label="Material", options=mat_opts)
-        lot_int = ft.TextField(label="Lote Interno")
-        qty = ft.TextField(label="Cantidad")
+        # --- CAMPOS DEL FORMULARIO ---
+        mat_dd = ft.Dropdown(label="Seleccionar Materia Prima", options=mat_opts, expand=True)
         
-        def receive(e):
-            db.execute_query("INSERT INTO inventory (material_id, lot_internal, quantity, status) VALUES (%s, %s, %s, 'CUARENTENA')",
-                             (mat_dd.value, lot_int.value, float(qty.value)))
-            ft.SnackBar(ft.Text("Ingresado")).open = True
-            page.update()
+        # Fila 1: Lotes
+        lot_int = ft.TextField(label="Lote Interno (Asignado)", expand=True)
+        lot_ven = ft.TextField(label="Lote Proveedor", expand=True)
+        
+        # Fila 2: Origen
+        manufacturer = ft.TextField(label="Fabricante", expand=True)
+        qty = ft.TextField(label="Cantidad Recibida (kg)", keyboard_type=ft.KeyboardType.NUMBER, expand=True)
+        
+        # Fila 3: Caducidad
+        # Usamos un TextField con hint para formato fecha (YYYY-MM-DD)
+        expiry = ft.TextField(
+            label="Fecha de Caducidad", 
+            hint_text="YYYY-MM-DD (Ej: 2026-12-31)", 
+            keyboard_type=ft.KeyboardType.DATETIME,
+            expand=True
+        )
 
-        content_column.controls = [ft.Text("Recepción"), mat_dd, lot_int, qty, ft.ElevatedButton("Guardar", on_click=receive)]
+        def receive_material(e):
+            # 1. Validaciones Básicas
+            if not all([mat_dd.value, lot_int.value, lot_ven.value, manufacturer.value, qty.value, expiry.value]):
+                ft.SnackBar(ft.Text("⚠️ Todos los campos son obligatorios")).open = True
+                page.update()
+                return
+            
+            try:
+                # 2. Insertar en Base de Datos
+                query = """
+                    INSERT INTO inventory 
+                    (material_id, lot_internal, lot_vendor, manufacturer, expiry_date, quantity, status) 
+                    VALUES (%s, %s, %s, %s, %s, %s, 'CUARENTENA')
+                """
+                params = (
+                    mat_dd.value, 
+                    lot_int.value, 
+                    lot_ven.value, 
+                    manufacturer.value, 
+                    expiry.value, 
+                    float(qty.value)
+                )
+                
+                db.execute_query(query, params)
+                
+                # 3. Audit Trail
+                log_audit(
+                    current_user["name"], 
+                    "RECEIPT", 
+                    f"Ingreso: {lot_int.value} | Prov: {lot_ven.value} | Qty: {qty.value}"
+                )
+
+                # 4. Limpieza y Feedback
+                ft.SnackBar(ft.Text(f"✅ Lote {lot_int.value} ingresado a Cuarentena")).open = True
+                
+                # Limpiar campos para la siguiente entrada
+                lot_int.value = ""
+                lot_ven.value = ""
+                manufacturer.value = ""
+                qty.value = ""
+                expiry.value = ""
+                page.update()
+
+            except Exception as ex:
+                logger.error(f"Error en recepción: {ex}")
+                ft.SnackBar(ft.Text("❌ Error al guardar. Verifica el formato de fecha (YYYY-MM-DD).")).open = True
+                page.update()
+
+        # Diseño Responsivo (Mobile First) usando Columnas
+        form_content = ft.Column([
+            ft.Text("Recepción de Materiales", size=20, weight="bold"),
+            ft.Divider(),
+            mat_dd,
+            ft.Row([lot_int, lot_ven], spacing=10), # En PC se ven lado a lado, en móvil se ajustan
+            manufacturer,
+            ft.Row([qty, expiry], spacing=10),
+            ft.Container(height=20), # Espacio
+            ft.ElevatedButton(
+                "Ingresar al Almacén", 
+                icon=ft.icons.SAVE_ALT, 
+                style=ft.ButtonStyle(bgcolor="blue", color="white"),
+                on_click=receive_material,
+                width=1000 # Ancho completo
+            )
+        ], scroll=ft.ScrollMode.AUTO)
+
+        content_column.controls = [ft.Container(content=form_content, padding=20)]
         page.update()
-
 # 4. MUESTREO (MEJORADO: Fórmula N+1 y Descuento de Inventario)
     def build_sampling_view():
         # Traemos items en CUARENTENA con su cantidad actual
@@ -712,4 +789,3 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
-
