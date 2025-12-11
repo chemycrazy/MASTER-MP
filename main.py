@@ -689,7 +689,7 @@ def main(page: ft.Page):
                     # Actualizar estado de inventario
                     new_status = "LIBERADO" if concl_dd.value == "APROBADO" else "RECHAZADO"
                     db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (new_status, inv_id))
-                    
+                   log_audit(current_user["name"], "LAB_RELEASE", f"Analisis Lote {lot}. Dictamen: {new_status}") 
                     # Generar PDF Completo
                     pdf_data = {
                         "Producto": mat_name,
