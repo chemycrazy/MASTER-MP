@@ -161,7 +161,8 @@ def main(page: ft.Page):
         elif idx == 1: build_inventory_view()
         elif idx == 2: build_sampling_view()
         elif idx == 3: build_lab_view()
-        elif idx == 4: build_audit_view()
+        elif idx == 4: build_query_view() # <--- NUEVO 
+        elif idx == 5: build_audit_view()
         page.update()
 
     nav_bar = ft.NavigationBar(
@@ -170,6 +171,7 @@ def main(page: ft.Page):
             ft.NavigationDestination(icon=ft.icons.INVENTORY, label="Almacén"),
             ft.NavigationDestination(icon=ft.icons.SCIENCE, label="Muestreo"),
             ft.NavigationDestination(icon=ft.icons.ASSIGNMENT, label="Lab"),
+            ft.NavigationDestination(icon=ft.icons.SEARCH, label="Consulta"),
             ft.NavigationDestination(icon=ft.icons.SECURITY, label="Admin"),
         ],
         on_change=change_tab,
@@ -451,7 +453,148 @@ def main(page: ft.Page):
 
         content_column.controls = [ft.Text("Laboratorio - Muestras Pendientes"), lv]
         page.update()
-        
+   # 6. MÓDULO DE CONSULTA Y CERTIFICADOS
+    def build_query_view():
+        search_tf = ft.TextField(label="Buscar por Lote o Nombre", suffix_icon=ft.icons.SEARCH)
+        results_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
+
+        def perform_search(e):
+            term = f"%{search_tf.value}%"
+            # Traemos inventario con nombre de material
+            query = """
+                SELECT i.id, m.code, m.name, i.lot_internal, i.status, i.expiry_date, i.quantity 
+                FROM inventory i 
+                JOIN materials m ON i.material_id = m.id 
+                WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s OR m.code ILIKE %s
+                ORDER BY i.id DESC
+            """
+            items = db.execute_query(query, (term, term, term), fetch=True) or []
+            
+            results_col.controls.clear()
+            
+            if not items:
+                results_col.controls.append(ft.Text("No se encontraron registros."))
+            
+            for item in items:
+                # Color del estado
+                status_color = "green" if item[4] == "LIBERADO" else "red" if item[4] == "RECHAZADO" else "orange"
+                
+                results_col.controls.append(
+                    ft.Card(
+                        content=ft.ListTile(
+                            leading=ft.Icon(ft.icons.CIRCLE, color=status_color),
+                            title=ft.Text(f"{item[2]} ({item[1]})"),
+                            subtitle=ft.Text(f"Lote: {item[3]} | Estado: {item[4]}"),
+                            trailing=ft.IconButton(ft.icons.VISIBILITY, tooltip="Ver Detalles / CoA", 
+                                                   on_click=lambda e, iid=item[0], name=item[2], lot=item[3]: show_full_details(iid, name, lot))
+                        )
+                    )
+                )
+            page.update()
+
+        def show_full_details(inv_id, mat_name, lot):
+            # 1. Obtener Datos Generales
+            inv_data = db.execute_query(
+                "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s", 
+                (inv_id,), fetch=True
+            )[0]
+            
+            # 2. Obtener Resultados de Laboratorio (si existen)
+            lab_data = db.execute_query(
+                "SELECT analyst, result_data, conclusion, date_analyzed FROM lab_results WHERE inventory_id=%s", 
+                (inv_id,), fetch=True
+            )
+
+            # Construir UI de Detalles
+            details_controls = [
+                ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
+                ft.Text(f"Lote Interno: {lot}", size=16),
+                ft.Divider(),
+                ft.Text("Información de Almacén:", weight="bold"),
+                ft.Text(f"Lote Proveedor: {inv_data[0]}"),
+                ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
+                ft.Text(f"Cantidad: {inv_data[2]} kg"),
+                ft.Text(f"Caducidad: {inv_data[3]}"),
+                ft.Text(f"Estado Actual: {inv_data[4]}"),
+                ft.Divider(),
+            ]
+
+            # Si hay análisis, mostrar tabla comparativa
+            if lab_data:
+                res = lab_data[0] # Tomamos el primer análisis
+                results_json = res[1] # JSON con resultados
+                conclusion = res[2]
+                
+                details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
+                details_controls.append(ft.Text(f"Analista: {res[0]}"))
+                details_controls.append(ft.Text(f"Conclusión: {conclusion}", color="green" if conclusion=="APROBADO" else "red", weight="bold"))
+                
+                # Reconstruir tabla comparativa (Specs vs Resultado)
+                # Necesitamos consultar las specs originales del perfil
+                mat_id = inv_data[5]
+                profile_specs = db.execute_query(
+                    "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
+                    (mat_id,), fetch=True
+                )
+                
+                dt = ft.DataTable(columns=[
+                    ft.DataColumn(ft.Text("Prueba")),
+                    ft.DataColumn(ft.Text("Especificación")),
+                    ft.DataColumn(ft.Text("Resultado")),
+                ], rows=[])
+                
+                # Lista para enviar al generador de PDF
+                pdf_data_list = []
+
+                if profile_specs:
+                    for spec in profile_specs:
+                        test_name = spec[0]
+                        test_spec = spec[1]
+                        # Buscar resultado en el JSON, si no existe poner 'N/A'
+                        test_res = results_json.get(test_name, "N/A")
+                        
+                        dt.rows.append(ft.DataRow(cells=[
+                            ft.DataCell(ft.Text(test_name)),
+                            ft.DataCell(ft.Text(test_spec)),
+                            ft.DataCell(ft.Text(str(test_res))),
+                        ]))
+                        
+                        pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
+
+                details_controls.append(dt)
+                
+                # Botón de Generar PDF
+                def print_coa(e):
+                    pdf_name = f"CoA_REPRINT_{lot}.pdf"
+                    generate_pdf(pdf_name, 
+                                 {"Producto": mat_name, "Lote": lot, "Fabricante": str(inv_data[1]), "Conclusión": conclusion}, 
+                                 pdf_data_list)
+                    ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}")).open = True
+                    page.update()
+
+                details_controls.append(ft.ElevatedButton("Descargar Certificado (PDF)", icon=ft.icons.PICTURE_AS_PDF, on_click=print_coa))
+
+            else:
+                details_controls.append(ft.Text("⚠️ Este material aún no ha sido analizado por el laboratorio.", color="orange"))
+
+            # Mostrar Dialogo
+            dlg = ft.AlertDialog(
+                title=ft.Text("Expediente de Lote"),
+                content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+            )
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
+
+        search_tf.on_submit = perform_search
+        content_column.controls = [
+            ft.Text("Consulta General & Certificados", size=20, weight="bold"),
+            ft.Row([search_tf, ft.IconButton(ft.icons.SEARCH, on_click=perform_search)]),
+            results_col
+        ]
+        # Cargar todo al inicio
+        perform_search(None)     
     def build_audit_view():
         # Vista simple de logs
         content_column.controls = [ft.Text("Audit Trail disponible en base de datos.")]
