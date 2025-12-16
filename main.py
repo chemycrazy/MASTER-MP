@@ -207,8 +207,9 @@ def main(page: ft.Page):
         elif idx == 1: build_inventory_view()
         elif idx == 2: build_sampling_view()
         elif idx == 3: build_lab_view()
-        elif idx == 4: build_query_view() # <--- NUEVO 
+        elif idx == 4: build_query_view() 
         elif idx == 5: build_audit_view()
+……elif idx == 6: build_users_view() 
         page.update()
 
     nav_bar = ft.NavigationBar(
@@ -218,33 +219,109 @@ def main(page: ft.Page):
             ft.NavigationDestination(icon=ft.icons.SCIENCE, label="Muestreo"),
             ft.NavigationDestination(icon=ft.icons.ASSIGNMENT, label="Lab"),
             ft.NavigationDestination(icon=ft.icons.SEARCH, label="Consulta"),
+            ft.NavigationDestination(icon=ft.icons.PEOPLE, label="Usuarios"),
             ft.NavigationDestination(icon=ft.icons.SECURITY, label="Admin"),
         ],
         on_change=change_tab,
         visible=False
     )
     
+
     content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
-    # 1. LOGIN
+    # --- 1. CONFIGURACIÓN DE MENÚ DINÁMICO (DEBE IR ANTES DEL LOGIN) ---
+    
+    # Mapa de todos los módulos disponibles
+    MODULES_MAP = {
+        "CATALOGO":  {"icon": ft.icons.BOOK,       "label": "Catálogo", "func": build_catalog_view},
+        "ALMACEN":   {"icon": ft.icons.INVENTORY,  "label": "Almacén",  "func": build_inventory_view},
+        "MUESTREO":  {"icon": ft.icons.SCIENCE,    "label": "Muestreo", "func": build_sampling_view},
+        "LAB":       {"icon": ft.icons.ASSIGNMENT, "label": "Lab",      "func": build_lab_view},
+        "CONSULTA":  {"icon": ft.icons.SEARCH,     "label": "Consulta", "func": build_query_view},
+        "USUARIOS":  {"icon": ft.icons.PEOPLE,     "label": "Usuarios", "func": build_users_view},
+        "ADMIN":     {"icon": ft.icons.SECURITY,   "label": "Admin",    "func": build_audit_view},
+    }
+
+    # Permisos por Rol
+    ROLE_PERMISSIONS = {
+        "ADMIN":    ["CATALOGO", "ALMACEN", "MUESTREO", "LAB", "CONSULTA", "USUARIOS", "ADMIN"],
+        "CALIDAD":  ["CATALOGO", "MUESTREO", "LAB", "CONSULTA"],
+        "ALMACEN":  ["ALMACEN", "CONSULTA"],
+        "OPERADOR": ["ALMACEN"] 
+    }
+
+    current_modules = []
+
+    def change_tab(e):
+        idx = e.control.selected_index
+        if idx < len(current_modules):
+            module_key = current_modules[idx]
+            content_column.controls.clear()
+            build_func = MODULES_MAP[module_key]["func"]
+            build_func()
+            page.update()
+
+    nav_bar = ft.NavigationBar(destinations=[], on_change=change_tab, visible=False)
+
+    def configure_menu_for_role(role):
+        current_modules.clear()
+        allowed_keys = ROLE_PERMISSIONS.get(role, ["CONSULTA"])
+        
+        nav_destinations = []
+        for key in allowed_keys:
+            if key in MODULES_MAP:
+                config = MODULES_MAP[key]
+                current_modules.append(key)
+                nav_destinations.append(
+                    ft.NavigationDestination(icon=config["icon"], label=config["label"])
+                )
+        
+        nav_bar.destinations = nav_destinations
+        nav_bar.visible = True
+        page.update()
+
+    # --- 2. LOGIN (AQUÍ VA EL CÓDIGO QUE ME ENVIASTE) ---
     def build_login():
         user_tf = ft.TextField(label="Usuario")
-        pass_tf = ft.TextField(label="Contraseña", password=True)
-        error_txt = ft.Text(color="red")
+        pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
+        error_txt = ft.Text(color="red", weight="bold")
         
         def auth(e):
-            res = db.execute_query("SELECT * FROM users WHERE username=%s AND password=%s", (user_tf.value, pass_tf.value), fetch=True)
+            # Consulta verificando explícitamente is_locked
+            query = "SELECT id, username, password, role, is_locked FROM users WHERE username=%s AND password=%s"
+            res = db.execute_query(query, (user_tf.value, pass_tf.value), fetch=True)
+            
             if res:
-                current_user["name"] = res[0][1]
-                current_user["role"] = res[0][3]
-                nav_bar.visible = True
-                page.clean()
-                page.add(content_column)
-                page.navigation_bar = nav_bar
-                build_catalog_view()
-                page.update()
+                is_locked = res[0][4] 
+                
+                if is_locked:
+                    error_txt.value = "⛔ ACCESO DENEGADO: Usuario Bloqueado."
+                    page.update()
+                else:
+                    current_user["name"] = res[0][1]
+                    current_user["role"] = res[0][3]
+                    
+                    # Configurar menú según rol
+                    try:
+                        configure_menu_for_role(current_user["role"])
+                    except Exception as e:
+                        print(f"Error menu: {e}")
+                        nav_bar.visible = True
+
+                    page.clean()
+                    page.add(content_column)
+                    page.navigation_bar = nav_bar
+                    
+                    # Cargar primera pantalla disponible
+                    if current_modules:
+                        first_func = MODULES_MAP[current_modules[0]]["func"]
+                        first_func()
+                    else:
+                        build_catalog_view()
+                        
+                    page.update()
             else:
-                error_txt.value = "Error de credenciales"
+                error_txt.value = "Usuario o contraseña incorrectos"
                 page.update()
 
         page.add(ft.Container(
@@ -257,6 +334,68 @@ def main(page: ft.Page):
             alignment=ft.alignment.center, padding=20
         ))
 
+    # ... (Resto de tus funciones: build_catalog_view, etc.) ...
+    # 1. LOGIN
+# 1. LOGIN (CON VERIFICACIÓN DE BLOQUEO Y MENÚ DINÁMICO)
+    def build_login():
+        user_tf = ft.TextField(label="Usuario")
+        pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
+        error_txt = ft.Text(color="red", weight="bold")
+        
+        def auth(e):
+            # Consultamos explícitamente la columna is_locked (índice 4)
+            # Indices: 0=id, 1=username, 2=password, 3=role, 4=is_locked
+            query = "SELECT id, username, password, role, is_locked FROM users WHERE username=%s AND password=%s"
+            res = db.execute_query(query, (user_tf.value, pass_tf.value), fetch=True)
+            
+            if res:
+                # El usuario existe, ahora verificamos si está bloqueado
+                is_locked = res[0][4] 
+                
+                if is_locked:
+                    # SI ESTÁ BLOQUEADO: Mostramos error y NO entramos
+                    error_txt.value = "⛔ ACCESO DENEGADO: Usuario Bloqueado."
+                    page.update()
+                else:
+                    # SI NO ESTÁ BLOQUEADO: Procedemos normalmente
+                    current_user["name"] = res[0][1]
+                    current_user["role"] = res[0][3]
+                    
+                    # 1. Configuramos el menú según su rol
+                    try:
+                        configure_menu_for_role(current_user["role"])
+                    except:
+                        # Fallback por si no has pegado el código del menú dinámico aún
+                        nav_bar.visible = True
+
+                    # 2. Limpiamos pantalla y cargamos la app
+                    page.clean()
+                    page.add(content_column)
+                    page.navigation_bar = nav_bar
+                    
+                    # 3. Intentamos cargar la primera pantalla disponible
+                    if current_modules:
+                         # Si usamos el menú dinámico
+                        first_func = MODULES_MAP[current_modules[0]]["func"]
+                        first_func()
+                    else:
+                        # Si no usamos menú dinámico, cargamos catálogo por defecto
+                        build_catalog_view()
+                        
+                    page.update()
+            else:
+                error_txt.value = "Usuario o contraseña incorrectos"
+                page.update()
+
+        page.add(ft.Container(
+            content=ft.Column([
+                ft.Icon(ft.icons.LOCAL_PHARMACY, size=60, color="blue"),
+                ft.Text("MASTER MP", size=24, weight="bold"),
+                user_tf, pass_tf, error_txt,
+                ft.ElevatedButton("Entrar", on_click=auth)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            alignment=ft.alignment.center, padding=20
+        ))
     # 2. CATÁLOGO & PERFILES
     def build_catalog_view():
         # Tabs internos: Materias vs Pruebas
@@ -808,6 +947,304 @@ def main(page: ft.Page):
         # Cargar todo al inicio
         perform_search(None)     
     # 7. AUDIT TRAIL (REDDISEÑADO PARA VERSE BIEN EN MOVIL)
+# --- MÓDULO DE GESTIÓN DE USUARIOS (SEGURIDAD) ---
+    def build_users_view():
+        # 1. Seguridad: Solo ADMIN puede ver esto
+        if current_user["role"] != "ADMIN":
+            content_column.controls = [
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.SECURITY, size=60, color="red"),
+                        ft.Text("ACCESO RESTRINGIDO", size=20, weight="bold"),
+                        ft.Text("Solo Administradores pueden gestionar usuarios.")
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center, padding=20
+                )
+            ]
+            page.update()
+            return
+
+        # 2. Lista de Usuarios
+        users_list = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
+        
+        def render_users():
+            users_list.controls.clear()
+            # Consultamos todos los usuarios (excepto passwords por seguridad)
+            data = db.execute_query("SELECT id, username, role, is_locked FROM users ORDER BY id ASC", fetch=True) or []
+            
+            for u in data:
+                u_id, u_name, u_role, u_locked = u
+                
+                # Diseño visual según estado
+                icon = ft.icons.VERIFIED_USER
+                color = "blue"
+                status_text = "ACTIVO"
+                
+                if u_locked:
+                    icon = ft.icons.BLOCK
+                    color = "grey"
+                    status_text = "BLOQUEADO"
+                elif u_role == "ADMIN":
+                    icon = ft.icons.SECURITY
+                    color = "red"
+                
+                # Tarjeta de Usuario
+                card = ft.Card(
+                    content=ft.ListTile(
+                        leading=ft.Icon(icon, color=color, size=30),
+                        title=ft.Text(u_name, weight="bold"),
+                        subtitle=ft.Text(f"Rol: {u_role} | Estado: {status_text}"),
+                        trailing=ft.IconButton(
+                            ft.icons.EDIT, 
+                            tooltip="Editar Permisos",
+                            on_click=lambda e, uid=u_id, name=u_name, role=u_role, locked=u_locked: open_edit_user(uid, name, role, locked)
+                        )
+                    )
+                )
+                users_list.controls.append(card)
+            page.update()
+
+        # 3. Diálogo de CREAR Usuario
+        def open_add_user(e):
+            tf_user = ft.TextField(label="Nombre de Usuario")
+            tf_pass = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
+            dd_role = ft.Dropdown(
+                label="Rol / Perfil",
+                options=[
+                    ft.dropdown.Option("OPERADOR"),
+                    ft.dropdown.Option("ALMACEN"),
+                    ft.dropdown.Option("CALIDAD"), # Lab
+                    ft.dropdown.Option("ADMIN"),
+                ],
+                value="OPERADOR"
+            )
+            
+            def save_new(e):
+                if not tf_user.value or not tf_pass.value:
+                    tf_user.error_text = "Datos incompletos"
+                    page.update()
+                    return
+                try:
+                    db.execute_query(
+                        "INSERT INTO users (username, password, role, is_locked) VALUES (%s, %s, %s, FALSE)",
+                        (tf_user.value, tf_pass.value, dd_role.value)
+                    )
+                    log_audit(current_user["name"], "USER_CREATE", f"Creo usuario: {tf_user.value} como {dd_role.value}")
+                    page.dialog.open = False
+                    render_users()
+                    ft.SnackBar(ft.Text("Usuario creado exitosamente")).open = True
+                    page.update()
+                except Exception as ex:
+                    ft.SnackBar(ft.Text("Error: El usuario ya existe")).open = True
+
+            page.dialog = ft.AlertDialog(
+                title=ft.Text("Nuevo Usuario"),
+                content=ft.Column([tf_user, tf_pass, dd_role], tight=True, width=300),
+                actions=[ft.ElevatedButton("Crear", on_click=save_new)]
+            )
+            page.dialog.open = True
+            page.update()
+
+        # 4. Diálogo de EDITAR Usuario (Bloquear/Cambiar Rol)
+        def open_edit_user(uid, name, role, locked):
+            dd_role = ft.Dropdown(
+                label="Rol",
+                options=[
+                    ft.dropdown.Option("OPERADOR"),
+                    ft.dropdown.Option("ALMACEN"),
+                    ft.dropdown.Option("CALIDAD"),
+                    ft.dropdown.Option("ADMIN"),
+                ],
+                value=role
+            )
+            # Switch para bloquear
+            sw_lock = ft.Switch(label="Usuario Bloqueado (Acceso Denegado)", value=locked)
+            
+            def save_edit(e):
+                db.execute_query(
+                    "UPDATE users SET role=%s, is_locked=%s WHERE id=%s",
+                    (dd_role.value, sw_lock.value, uid)
+                )
+                action = "BLOQUEO" if sw_lock.value else "DESBLOQUEO"
+                log_audit(current_user["name"], "USER_EDIT", f"{action} usuario {name}. Nuevo Rol: {dd_role.value}")
+                
+                page.dialog.open = False
+                render_users()
+                page.update()
+
+            page.dialog = ft.AlertDialog(
+                title=ft.Text(f"Editar: {name}"),
+                content=ft.Column([dd_role, sw_lock], tight=True, width=300),
+                actions=[ft.ElevatedButton("Guardar Cambios", on_click=save_edit)]
+            )
+            page.dialog.open = True
+            page.update()
+
+        # Montaje inicial
+        render_users()
+        content_column.controls = [
+            ft.Row([
+                ft.Text("Gestión de Usuarios", size=20, weight="bold"),
+                ft.ElevatedButton("Nuevo", icon=ft.icons.PERSON_ADD, on_click=open_add_user)
+            ], alignment="spaceBetween"),
+            ft.Divider(),
+            users_list
+        ]
+        page.update()
+# 7. GESTIÓN DE USUARIOS (SOLO ADMIN)
+    def build_users_view():
+        # 1. Seguridad: Solo ADMIN entra aquí
+        if current_user["role"] != "ADMIN":
+            content_column.controls = [
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.SECURITY, size=60, color="red"),
+                        ft.Text("ACCESO RESTRINGIDO", size=20, weight="bold"),
+                        ft.Text("Solo Administradores pueden gestionar usuarios.")
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center, padding=20
+                )
+            ]
+            page.update()
+            return
+
+        # 2. Contenedor de la lista
+        users_list = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
+        
+        def render_users():
+            users_list.controls.clear()
+            # Consultamos usuarios (sin contraseña por seguridad)
+            data = db.execute_query("SELECT id, username, role, is_locked FROM users ORDER BY id ASC", fetch=True) or []
+            
+            for u in data:
+                u_id, u_name, u_role, u_locked = u
+                
+                # Estilo visual según estado
+                icon_code = ft.icons.VERIFIED_USER
+                icon_color = "blue"
+                status_txt = "ACTIVO"
+                
+                if u_locked:
+                    icon_code = ft.icons.BLOCK
+                    icon_color = "grey"
+                    status_txt = "BLOQUEADO"
+                elif u_role == "ADMIN":
+                    icon_code = ft.icons.SECURITY
+                    icon_color = "red"
+                
+                # Tarjeta de Usuario
+                card = ft.Card(
+                    content=ft.ListTile(
+                        leading=ft.Icon(icon_code, color=icon_color, size=30),
+                        title=ft.Text(u_name, weight="bold"),
+                        subtitle=ft.Text(f"Rol: {u_role} | Estado: {status_txt}"),
+                        trailing=ft.IconButton(
+                            ft.icons.EDIT, 
+                            tooltip="Editar Permisos / Bloquear",
+                            on_click=lambda e, uid=u_id, name=u_name, role=u_role, locked=u_locked: open_edit_user(uid, name, role, locked)
+                        )
+                    )
+                )
+                users_list.controls.append(card)
+            page.update()
+
+        # 3. Diálogo CREAR Usuario
+        def open_add_user(e):
+            tf_user = ft.TextField(label="Nombre de Usuario")
+            tf_pass = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
+            dd_role = ft.Dropdown(
+                label="Rol Asignado",
+                options=[
+                    ft.dropdown.Option("OPERADOR"),
+                    ft.dropdown.Option("ALMACEN"),
+                    ft.dropdown.Option("CALIDAD"),
+                    ft.dropdown.Option("ADMIN"),
+                ],
+                value="OPERADOR"
+            )
+            
+            def save_new(e):
+                if not tf_user.value or not tf_pass.value:
+                    tf_user.error_text = "Requerido"
+                    page.update()
+                    return
+                try:
+                    # Insertamos con is_locked = FALSE por defecto
+                    db.execute_query(
+                        "INSERT INTO users (username, password, role, is_locked) VALUES (%s, %s, %s, FALSE)",
+                        (tf_user.value, tf_pass.value, dd_role.value)
+                    )
+                    log_audit(current_user["name"], "USER_CREATE", f"Creo usuario: {tf_user.value} como {dd_role.value}")
+                    
+                    page.dialog.open = False
+                    render_users()
+                    ft.SnackBar(ft.Text("Usuario creado exitosamente")).open = True
+                    page.update()
+                except Exception:
+                    ft.SnackBar(ft.Text("Error: El usuario ya existe")).open = True
+                    page.update()
+
+            page.dialog = ft.AlertDialog(
+                title=ft.Text("Nuevo Usuario"),
+                content=ft.Column([tf_user, tf_pass, dd_role], tight=True, width=300),
+                actions=[ft.ElevatedButton("Crear", on_click=save_new)]
+            )
+            page.dialog.open = True
+            page.update()
+
+        # 4. Diálogo EDITAR (Bloquear/Desbloquear)
+        def open_edit_user(uid, name, role, locked):
+            dd_role = ft.Dropdown(
+                label="Rol",
+                options=[
+                    ft.dropdown.Option("OPERADOR"),
+                    ft.dropdown.Option("ALMACEN"),
+                    ft.dropdown.Option("CALIDAD"),
+                    ft.dropdown.Option("ADMIN"),
+                ],
+                value=role
+            )
+            # Switch para Bloqueo
+            sw_lock = ft.Switch(label="Usuario Bloqueado (Acceso Denegado)", value=locked)
+            
+            def save_edit(e):
+                # Actualizamos Rol y Estado de Bloqueo
+                db.execute_query(
+                    "UPDATE users SET role=%s, is_locked=%s WHERE id=%s",
+                    (dd_role.value, sw_lock.value, uid)
+                )
+                
+                action_desc = "BLOQUEO" if sw_lock.value else "DESBLOQUEO"
+                log_audit(current_user["name"], "USER_EDIT", f"{action_desc} de usuario {name}. Rol: {dd_role.value}")
+                
+                page.dialog.open = False
+                render_users()
+                page.update()
+
+            page.dialog = ft.AlertDialog(
+                title=ft.Text(f"Editar: {name}"),
+                content=ft.Column([
+                    ft.Text("Gestión de Acceso", weight="bold"),
+                    dd_role, 
+                    ft.Divider(),
+                    sw_lock
+                ], tight=True, width=300),
+                actions=[ft.ElevatedButton("Guardar Cambios", on_click=save_edit)]
+            )
+            page.dialog.open = True
+            page.update()
+
+        # Montaje de la pantalla
+        render_users()
+        content_column.controls = [
+            ft.Row([
+                ft.Text("Gestión de Usuarios", size=20, weight="bold"),
+                ft.ElevatedButton("Nuevo Usuario", icon=ft.icons.PERSON_ADD, on_click=open_add_user)
+            ], alignment="spaceBetween"),
+            ft.Divider(),
+            users_list
+        ]
+        page.update()
     def build_audit_view():
         if current_user["role"] != "ADMIN":
             content_column.controls = [
