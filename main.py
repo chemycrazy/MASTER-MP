@@ -236,7 +236,6 @@ def main(page: ft.Page):
 
         "USUARIOS":  {"icon": ft.icons.PEOPLE,     "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
         "ADMIN":     {"icon": ft.icons.SECURITY,   "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)},
-    }    }
     
 # Permisos por Rol
     ROLE_PERMISSIONS = {
