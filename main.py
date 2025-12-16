@@ -1114,9 +1114,8 @@ def main(page: ft.Page):
         def search_for_edit(e):
             t = f"%{tf_search.value}%"
             # Buscamos items activos para corregir
-            # Traemos datos editables: Lote Prov, Fabricante, Cantidad, Caducidad
             query = """
-                SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.manufacturer, i.quantity, i.expiry_date 
+                SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.manufacturer, i.quantity, i.expiry_date, i.status 
                 FROM inventory i JOIN materials m ON i.material_id=m.id 
                 WHERE i.lot_internal ILIKE %s OR m.name ILIKE %s 
                 ORDER BY i.id DESC
@@ -1129,7 +1128,7 @@ def main(page: ft.Page):
                 col_res.controls.append(ft.Text("No se encontraron lotes."))
 
             for d in data:
-                # d = [0:id, 1:name, 2:lot_int, 3:lot_ven, 4:mfg, 5:qty, 6:exp]
+                # d = [0:id, 1:name, 2:lot_int, 3:lot_ven, 4:mfg, 5:qty, 6:exp, 7:status]
                 
                 # Tarjeta de Lote
                 col_res.controls.append(
@@ -1137,7 +1136,7 @@ def main(page: ft.Page):
                         content=ft.ListTile(
                             leading=ft.Icon(ft.icons.EDIT_DOCUMENT, color="orange"),
                             title=ft.Text(f"{d[1]}"),
-                            subtitle=ft.Text(f"Lote Int: {d[2]} | Qty: {d[5]} | Cad: {d[6]}"),
+                            subtitle=ft.Text(f"Lote: {d[2]} | Est: {d[7]}"),
                             trailing=ft.IconButton(
                                 ft.icons.ARROW_FORWARD, 
                                 tooltip="Corregir Datos", 
@@ -1149,106 +1148,147 @@ def main(page: ft.Page):
             page.update()
 
         def open_correction_dialog(data):
-            # data = [id, name, lot_int, lot_ven, mfg, qty, exp]
+            # data = [id, name, lot_int, lot_ven, mfg, qty, exp, status]
             item_id = data[0]
             lot_int = data[2]
             
-            # Campos con valores actuales pre-cargados
-            # Nota: El Lote Interno NO se edita por seguridad referencial
+            # 1. CAMPOS ALMACEN (Pre-cargados)
             tf_lot_ven = ft.TextField(label="Lote Proveedor", value=str(data[3] or ""))
             tf_mfg = ft.TextField(label="Fabricante", value=str(data[4] or ""))
             tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(data[5]), keyboard_type=ft.KeyboardType.NUMBER)
             tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(data[6]))
             
-            # --- CAMPO CRÍTICO ALCOA: MOTIVO DEL CAMBIO ---
+            # 2. CAMPOS LABORATORIO (Busca si existen)
+            lab_res = db.execute_query(
+                "SELECT id, analysis_num, bib_reference, conclusion, observations FROM lab_results WHERE inventory_id=%s",
+                (item_id,), fetch=True
+            )
+            
+            has_lab_data = False
+            lab_id = None
+            old_lab = ["", "", "", ""] # Num, Ref, Concl, Obs
+
+            if lab_res:
+                has_lab_data = True
+                lab_id = lab_res[0][0]
+                old_lab = [
+                    str(lab_res[0][1] or ""), 
+                    str(lab_res[0][2] or ""), 
+                    str(lab_res[0][3] or ""), 
+                    str(lab_res[0][4] or "")
+                ]
+
+            # Controles UI Laboratorio
+            tf_ana_num = ft.TextField(label="No. Análisis", value=old_lab[0], disabled=not has_lab_data)
+            tf_bib_ref = ft.TextField(label="Referencia", value=old_lab[1], disabled=not has_lab_data)
+            tf_obs_lab = ft.TextField(label="Observaciones Lab", value=old_lab[3], multiline=True, disabled=not has_lab_data)
+            dd_concl = ft.Dropdown(
+                label="Dictamen", 
+                options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")],
+                value=old_lab[2] if old_lab[2] else None,
+                disabled=not has_lab_data
+            )
+            
+            lab_section_title = "Datos de Laboratorio (Editar)" if has_lab_data else "Datos de Laboratorio (No disponible - Lote sin analizar)"
+            lab_section_color = "blue" if has_lab_data else "grey"
+
+            # 3. MOTIVO (ALCOA)
             tf_reason = ft.TextField(
                 label="MOTIVO DE LA CORRECCIÓN (Obligatorio)", 
                 multiline=True, 
                 border_color="red", 
                 prefix_icon=ft.icons.WARNING_AMBER_ROUNDED,
-                helper_text="Justifique detalladamente el cambio para Auditoría."
+                helper_text="Justifique el cambio para Auditoría."
             )
 
             def save_correction(e):
-                # 1. Validación de Motivo (ALCOA)
                 if not tf_reason.value or len(tf_reason.value) < 5:
-                    tf_reason.error_text = "Debe justificar el cambio obligatoriamente."
+                    tf_reason.error_text = "Justificación obligatoria (>5 carácteres)."
                     page.update()
                     return
 
-                # 2. Detectar qué cambió (Audit Trail Inteligente)
                 changes = []
                 
-                # Comparamos valor nuevo vs valor original (data)
-                # Lote Proveedor
-                if tf_lot_ven.value != str(data[3] or ""):
-                    changes.append(f"LoteProv: '{data[3]}' -> '{tf_lot_ven.value}'")
-                
-                # Fabricante
-                if tf_mfg.value != str(data[4] or ""):
-                    changes.append(f"Fab: '{data[4]}' -> '{tf_mfg.value}'")
-                
-                # Cantidad
+                # --- Comparar ALMACEN ---
+                if tf_lot_ven.value != str(data[3] or ""): changes.append(f"LoteProv: '{data[3]}' -> '{tf_lot_ven.value}'")
+                if tf_mfg.value != str(data[4] or ""):     changes.append(f"Fab: '{data[4]}' -> '{tf_mfg.value}'")
+                if tf_exp.value != str(data[6]):           changes.append(f"Cad: '{data[6]}' -> '{tf_exp.value}'")
                 try:
-                    new_qty = float(tf_qty.value)
-                    if new_qty != float(data[5]):
-                        changes.append(f"Cant: {data[5]} -> {new_qty}")
+                    if float(tf_qty.value) != float(data[5]): changes.append(f"Cant: {data[5]} -> {tf_qty.value}")
                 except:
                     tf_qty.error_text = "Error numérico"
                     page.update()
                     return
 
-                # Caducidad
-                if tf_exp.value != str(data[6]):
-                    changes.append(f"Cad: '{data[6]}' -> '{tf_exp.value}'")
+                # --- Comparar LABORATORIO ---
+                lab_update_needed = False
+                if has_lab_data:
+                    if tf_ana_num.value != old_lab[0]: 
+                        changes.append(f"Ana#: '{old_lab[0]}' -> '{tf_ana_num.value}'")
+                        lab_update_needed = True
+                    if tf_bib_ref.value != old_lab[1]: 
+                        changes.append(f"Ref: '{old_lab[1]}' -> '{tf_bib_ref.value}'")
+                        lab_update_needed = True
+                    if dd_concl.value != old_lab[2]:   
+                        changes.append(f"Dictamen: '{old_lab[2]}' -> '{dd_concl.value}'")
+                        lab_update_needed = True
+                    if tf_obs_lab.value != old_lab[3]: 
+                        changes.append(f"Obs: '{old_lab[3]}' -> '{tf_obs_lab.value}'")
+                        lab_update_needed = True
 
-                # Si no hubo cambios, no hacemos nada
                 if not changes:
-                    page.dialog.open = False
                     page.snack_bar = ft.SnackBar(ft.Text("No se detectaron cambios."))
                     page.snack_bar.open = True
                     page.update()
                     return
 
                 try:
-                    # 3. Actualizar Base de Datos
-                    query = """
-                        UPDATE inventory 
-                        SET lot_vendor=%s, manufacturer=%s, quantity=%s, expiry_date=%s 
-                        WHERE id=%s
-                    """
-                    db.execute_query(query, (tf_lot_ven.value, tf_mfg.value, float(tf_qty.value), tf_exp.value, item_id))
-
-                    # 4. Guardar Audit Trail (Quién, Qué cambió, Por qué)
-                    # Aquí cumplimos con la 'A' de Attributable y 'L' de Legible
-                    change_log = " | ".join(changes)
-                    audit_msg = f"CORRECCION {lot_int}: {change_log}. MOTIVO: {tf_reason.value}"
+                    # 1. Update Inventory
+                    db.execute_query(
+                        "UPDATE inventory SET lot_vendor=%s, manufacturer=%s, quantity=%s, expiry_date=%s WHERE id=%s",
+                        (tf_lot_ven.value, tf_mfg.value, float(tf_qty.value), tf_exp.value, item_id)
+                    )
                     
-                    log_audit(current_user["name"], "DATA_CORRECTION", audit_msg)
+                    # 2. Update Lab (si aplica)
+                    if lab_update_needed and lab_id:
+                        db.execute_query(
+                            "UPDATE lab_results SET analysis_num=%s, bib_reference=%s, conclusion=%s, observations=%s WHERE id=%s",
+                            (tf_ana_num.value, tf_bib_ref.value, dd_concl.value, tf_obs_lab.value, lab_id)
+                        )
+                        
+                        # LOGICA ESPECIAL: Si cambia el dictamen, actualizamos el status del inventario
+                        if dd_concl.value != old_lab[2]:
+                            new_status = "LIBERADO" if dd_concl.value == "APROBADO" else "RECHAZADO"
+                            db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (new_status, item_id))
+                            changes.append(f"AUTO-STATUS: '{data[7]}' -> '{new_status}'")
+
+                    # 3. Audit Trail
+                    change_log = " | ".join(changes)
+                    log_audit(current_user["name"], "DATA_CORRECTION", f"Lote {lot_int}: {change_log}. MOTIVO: {tf_reason.value}")
 
                     page.dialog.open = False
-                    search_for_edit(None) # Refrescar lista
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Corrección aplicada y auditada"))
+                    search_for_edit(None)
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Corrección guardada exitosamente."))
                     page.snack_bar.open = True
                     page.update()
 
                 except Exception as ex:
-                    logger.error(f"Error correccion: {ex}")
-                    page.snack_bar = ft.SnackBar(ft.Text("Error al guardar. Verifique formato de fecha."))
+                    logger.error(f"Error correction: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text("Error al guardar. Revise los datos."))
                     page.snack_bar.open = True
                     page.update()
 
-            # Diálogo de Edición
+            # Dialog Content
             page.dialog = ft.AlertDialog(
                 title=ft.Text(f"Corregir: {lot_int}"),
                 content=ft.Column([
-                    ft.Text("Edite con precaución. Todo queda registrado.", color="orange", italic=True),
-                    tf_lot_ven,
-                    tf_mfg,
-                    tf_qty,
-                    tf_exp,
+                    ft.Text("Datos de Almacén", color="blue", weight="bold"),
+                    tf_lot_ven, tf_mfg, tf_qty, tf_exp,
                     ft.Divider(),
-                    ft.Text("Integridad de Datos (ALCOA):", weight="bold"),
+                    ft.Text(lab_section_title, color=lab_section_color, weight="bold"),
+                    tf_ana_num, tf_bib_ref, dd_concl, tf_obs_lab,
+                    ft.Divider(),
+                    ft.Text("Integridad de Datos (ALCOA)", weight="bold"),
                     tf_reason
                 ], tight=True, scroll=ft.ScrollMode.ALWAYS, width=400),
                 actions=[
