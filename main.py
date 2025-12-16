@@ -198,38 +198,35 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     page.window_width = 390 # Simulación Mobile
     
-    current_user = {"name": None, "role": None}
+    # Variable para saber qué módulos tiene activos el usuario actual
+    current_modules = []
 
     def change_tab(e):
         idx = e.control.selected_index
-        content_column.controls.clear()
-        if idx == 0: build_catalog_view()
-        elif idx == 1: build_inventory_view()
-        elif idx == 2: build_sampling_view()
-        elif idx == 3: build_lab_view()
-        elif idx == 4: build_query_view() 
-        elif idx == 5: build_audit_view()
-……elif idx == 6: build_users_view() 
-        page.update()
+        
+        # Lógica Dinámica: Busca qué función corresponde al botón presionado
+        if current_modules and idx < len(current_modules):
+            module_key = current_modules[idx]
+            
+            # Limpiar pantalla
+            content_column.controls.clear()
+            
+            # Ejecutar la función correspondiente (Ej: build_users_view)
+            build_func = MODULES_MAP[module_key]["func"]
+            build_func()
+            
+            page.update()
 
+    # Barra de navegación (Empieza vacía, se llena al hacer Login)
     nav_bar = ft.NavigationBar(
-        destinations=[
-            ft.NavigationDestination(icon=ft.icons.BOOK, label="Catálogo"),
-            ft.NavigationDestination(icon=ft.icons.INVENTORY, label="Almacén"),
-            ft.NavigationDestination(icon=ft.icons.SCIENCE, label="Muestreo"),
-            ft.NavigationDestination(icon=ft.icons.ASSIGNMENT, label="Lab"),
-            ft.NavigationDestination(icon=ft.icons.SEARCH, label="Consulta"),
-            ft.NavigationDestination(icon=ft.icons.PEOPLE, label="Usuarios"),
-            ft.NavigationDestination(icon=ft.icons.SECURITY, label="Admin"),
-        ],
-        on_change=change_tab,
+        destinations=[], 
+        on_change=change_tab, 
         visible=False
     )
     
+content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
-    content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
-
-    # --- 1. CONFIGURACIÓN DE MENÚ DINÁMICO (DEBE IR ANTES DEL LOGIN) ---
+    # --- 1. CONFIGURACIÓN DE MENÚ DINÁMICO ---
     
     # Mapa de todos los módulos disponibles
     MODULES_MAP = {
@@ -254,7 +251,8 @@ def main(page: ft.Page):
 
     def change_tab(e):
         idx = e.control.selected_index
-        if idx < len(current_modules):
+        # Verificamos que el índice sea válido dentro de los módulos actuales del usuario
+        if current_modules and idx < len(current_modules):
             module_key = current_modules[idx]
             content_column.controls.clear()
             build_func = MODULES_MAP[module_key]["func"]
@@ -265,6 +263,7 @@ def main(page: ft.Page):
 
     def configure_menu_for_role(role):
         current_modules.clear()
+        # Si el rol no tiene permisos definidos, por seguridad solo damos CONSULTA
         allowed_keys = ROLE_PERMISSIONS.get(role, ["CONSULTA"])
         
         nav_destinations = []
@@ -280,7 +279,6 @@ def main(page: ft.Page):
         nav_bar.visible = True
         page.update()
 
-    # --- 2. LOGIN (AQUÍ VA EL CÓDIGO QUE ME ENVIASTE) ---
     def build_login():
         user_tf = ft.TextField(label="Usuario")
         pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
