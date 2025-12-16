@@ -224,19 +224,15 @@ def main(page: ft.Page):
     
 # Mapa de todos los módulos disponibles
     MODULES_MAP = {
-        "CATALOGO":  {"icon": ft.icons.BOOK,       "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
-        "ALMACEN":   {"icon": ft.icons.INVENTORY,  "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
-        "MUESTREO":  {"icon": ft.icons.SCIENCE,    "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
-        "LAB":       {"icon": ft.icons.ASSIGNMENT, "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
-        "CONSULTA":  {"icon": ft.icons.SEARCH,     "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
-        
-        # --- NUEVA LÍNEA AQUÍ ---
-        "CORRECCION":{"icon": ft.icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
-        # ------------------------
-
-        "USUARIOS":  {"icon": ft.icons.PEOPLE,     "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
-        "ADMIN":     {"icon": ft.icons.SECURITY,   "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)},
-    
+        "CATALOGO":   {"icon": ft.icons.BOOK,          "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
+        "ALMACEN":    {"icon": ft.icons.INVENTORY,     "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
+        "MUESTREO":   {"icon": ft.icons.SCIENCE,       "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
+        "LAB":        {"icon": ft.icons.ASSIGNMENT,    "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
+        "CONSULTA":   {"icon": ft.icons.SEARCH,        "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
+        "CORRECCION": {"icon": ft.icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
+        "USUARIOS":   {"icon": ft.icons.PEOPLE,        "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
+        "ADMIN":      {"icon": ft.icons.SECURITY,      "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)}
+    }    
 # Permisos por Rol
     ROLE_PERMISSIONS = {
         # Agregamos "CORRECCION" a la lista de ADMIN y CALIDAD
