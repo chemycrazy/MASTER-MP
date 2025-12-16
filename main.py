@@ -222,25 +222,31 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     page.window_width = 390  # Simulación Mobile
     
-    # Mapa de todos los módulos disponibles
+# Mapa de todos los módulos disponibles
     MODULES_MAP = {
-        "CATALOGO": {"icon": ft.icons.BOOK, "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
-        "ALMACEN": {"icon": ft.icons.INVENTORY, "label": "Almacén", "func": lambda: build_inventory_view(page, content_column, current_user)},
-        "MUESTREO": {"icon": ft.icons.SCIENCE, "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
-        "LAB": {"icon": ft.icons.ASSIGNMENT, "label": "Lab", "func": lambda: build_lab_view(page, content_column, current_user)},
-        "CONSULTA": {"icon": ft.icons.SEARCH, "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
-        "USUARIOS": {"icon": ft.icons.PEOPLE, "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
-        "ADMIN": {"icon": ft.icons.SECURITY, "label": "Admin", "func": lambda: build_audit_view(page, content_column, current_user)},
-    }
-    
-    # Permisos por Rol
-    ROLE_PERMISSIONS = {
-        "ADMIN": ["CATALOGO", "ALMACEN", "MUESTREO", "LAB", "CONSULTA", "USUARIOS", "ADMIN"],
-        "CALIDAD": ["CATALOGO", "MUESTREO", "LAB", "CONSULTA"],
-        "ALMACEN": ["ALMACEN", "CONSULTA"],
-        "OPERADOR": ["ALMACEN"]
-    }
+        "CATALOGO":  {"icon": ft.icons.BOOK,       "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
+        "ALMACEN":   {"icon": ft.icons.INVENTORY,  "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
+        "MUESTREO":  {"icon": ft.icons.SCIENCE,    "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
+        "LAB":       {"icon": ft.icons.ASSIGNMENT, "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
+        "CONSULTA":  {"icon": ft.icons.SEARCH,     "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
+        
+        # --- NUEVA LÍNEA AQUÍ ---
+        "CORRECCION":{"icon": ft.icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
+        # ------------------------
 
+        "USUARIOS":  {"icon": ft.icons.PEOPLE,     "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
+        "ADMIN":     {"icon": ft.icons.SECURITY,   "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)},
+    }    }
+    
+# Permisos por Rol
+    ROLE_PERMISSIONS = {
+        # Agregamos "CORRECCION" a la lista de ADMIN y CALIDAD
+        "ADMIN":    ["CATALOGO", "ALMACEN", "MUESTREO", "LAB", "CONSULTA", "CORRECCION", "USUARIOS", "ADMIN"],
+        "CALIDAD":  ["CATALOGO", "MUESTREO", "LAB", "CONSULTA", "CORRECCION"],
+        
+        "ALMACEN":  ["ALMACEN", "CONSULTA"],
+        "OPERADOR": ["ALMACEN"] 
+    }
     # Variables de control de UI (deben estar en el scope de main)
     current_modules = []
     content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
@@ -1094,6 +1100,178 @@ def main(page: ft.Page):
         ]
         page.update()
         
+# --- 8. MÓDULO DE CORRECCIÓN (ALCOA: DATA INTEGRITY) ---
+    def build_correction_view(page, content_column, current_user):
+        # Solo Admin o Calidad deberían poder corregir datos maestros
+        if current_user["role"] not in ["ADMIN", "CALIDAD"]:
+            content_column.controls = [
+                ft.Container(
+                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN/CALIDAD", color="white", weight="bold"),
+                    bgcolor="red", padding=20, alignment=ft.alignment.center
+                )
+            ]
+            page.update()
+            return
+
+        tf_search = ft.TextField(label="Buscar Lote a Corregir", suffix_icon=ft.icons.SEARCH, expand=True)
+        col_res = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
+
+        def search_for_edit(e):
+            t = f"%{tf_search.value}%"
+            # Buscamos items activos para corregir
+            # Traemos datos editables: Lote Prov, Fabricante, Cantidad, Caducidad
+            query = """
+                SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.manufacturer, i.quantity, i.expiry_date 
+                FROM inventory i JOIN materials m ON i.material_id=m.id 
+                WHERE i.lot_internal ILIKE %s OR m.name ILIKE %s 
+                ORDER BY i.id DESC
+            """
+            data = db.execute_query(query, (t, t), fetch=True) or []
+            
+            col_res.controls.clear()
+            
+            if not data:
+                col_res.controls.append(ft.Text("No se encontraron lotes."))
+
+            for d in data:
+                # d = [0:id, 1:name, 2:lot_int, 3:lot_ven, 4:mfg, 5:qty, 6:exp]
+                
+                # Tarjeta de Lote
+                col_res.controls.append(
+                    ft.Card(
+                        content=ft.ListTile(
+                            leading=ft.Icon(ft.icons.EDIT_DOCUMENT, color="orange"),
+                            title=ft.Text(f"{d[1]}"),
+                            subtitle=ft.Text(f"Lote Int: {d[2]} | Qty: {d[5]} | Cad: {d[6]}"),
+                            trailing=ft.IconButton(
+                                ft.icons.ARROW_FORWARD, 
+                                tooltip="Corregir Datos", 
+                                on_click=lambda e, x=d: open_correction_dialog(x)
+                            )
+                        )
+                    )
+                )
+            page.update()
+
+        def open_correction_dialog(data):
+            # data = [id, name, lot_int, lot_ven, mfg, qty, exp]
+            item_id = data[0]
+            lot_int = data[2]
+            
+            # Campos con valores actuales pre-cargados
+            # Nota: El Lote Interno NO se edita por seguridad referencial
+            tf_lot_ven = ft.TextField(label="Lote Proveedor", value=str(data[3] or ""))
+            tf_mfg = ft.TextField(label="Fabricante", value=str(data[4] or ""))
+            tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(data[5]), keyboard_type=ft.KeyboardType.NUMBER)
+            tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(data[6]))
+            
+            # --- CAMPO CRÍTICO ALCOA: MOTIVO DEL CAMBIO ---
+            tf_reason = ft.TextField(
+                label="MOTIVO DE LA CORRECCIÓN (Obligatorio)", 
+                multiline=True, 
+                border_color="red", 
+                prefix_icon=ft.icons.WARNING_AMBER_ROUNDED,
+                helper_text="Justifique detalladamente el cambio para Auditoría."
+            )
+
+            def save_correction(e):
+                # 1. Validación de Motivo (ALCOA)
+                if not tf_reason.value or len(tf_reason.value) < 5:
+                    tf_reason.error_text = "Debe justificar el cambio obligatoriamente."
+                    page.update()
+                    return
+
+                # 2. Detectar qué cambió (Audit Trail Inteligente)
+                changes = []
+                
+                # Comparamos valor nuevo vs valor original (data)
+                # Lote Proveedor
+                if tf_lot_ven.value != str(data[3] or ""):
+                    changes.append(f"LoteProv: '{data[3]}' -> '{tf_lot_ven.value}'")
+                
+                # Fabricante
+                if tf_mfg.value != str(data[4] or ""):
+                    changes.append(f"Fab: '{data[4]}' -> '{tf_mfg.value}'")
+                
+                # Cantidad
+                try:
+                    new_qty = float(tf_qty.value)
+                    if new_qty != float(data[5]):
+                        changes.append(f"Cant: {data[5]} -> {new_qty}")
+                except:
+                    tf_qty.error_text = "Error numérico"
+                    page.update()
+                    return
+
+                # Caducidad
+                if tf_exp.value != str(data[6]):
+                    changes.append(f"Cad: '{data[6]}' -> '{tf_exp.value}'")
+
+                # Si no hubo cambios, no hacemos nada
+                if not changes:
+                    page.dialog.open = False
+                    page.snack_bar = ft.SnackBar(ft.Text("No se detectaron cambios."))
+                    page.snack_bar.open = True
+                    page.update()
+                    return
+
+                try:
+                    # 3. Actualizar Base de Datos
+                    query = """
+                        UPDATE inventory 
+                        SET lot_vendor=%s, manufacturer=%s, quantity=%s, expiry_date=%s 
+                        WHERE id=%s
+                    """
+                    db.execute_query(query, (tf_lot_ven.value, tf_mfg.value, float(tf_qty.value), tf_exp.value, item_id))
+
+                    # 4. Guardar Audit Trail (Quién, Qué cambió, Por qué)
+                    # Aquí cumplimos con la 'A' de Attributable y 'L' de Legible
+                    change_log = " | ".join(changes)
+                    audit_msg = f"CORRECCION {lot_int}: {change_log}. MOTIVO: {tf_reason.value}"
+                    
+                    log_audit(current_user["name"], "DATA_CORRECTION", audit_msg)
+
+                    page.dialog.open = False
+                    search_for_edit(None) # Refrescar lista
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Corrección aplicada y auditada"))
+                    page.snack_bar.open = True
+                    page.update()
+
+                except Exception as ex:
+                    logger.error(f"Error correccion: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text("Error al guardar. Verifique formato de fecha."))
+                    page.snack_bar.open = True
+                    page.update()
+
+            # Diálogo de Edición
+            page.dialog = ft.AlertDialog(
+                title=ft.Text(f"Corregir: {lot_int}"),
+                content=ft.Column([
+                    ft.Text("Edite con precaución. Todo queda registrado.", color="orange", italic=True),
+                    tf_lot_ven,
+                    tf_mfg,
+                    tf_qty,
+                    tf_exp,
+                    ft.Divider(),
+                    ft.Text("Integridad de Datos (ALCOA):", weight="bold"),
+                    tf_reason
+                ], tight=True, scroll=ft.ScrollMode.ALWAYS, width=400),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda e: setattr(page.dialog, 'open', False) or page.update()),
+                    ft.ElevatedButton("Confirmar Corrección", on_click=save_correction, bgcolor="red", color="white")
+                ]
+            )
+            page.dialog.open = True
+            page.update()
+
+        tf_search.on_submit = search_for_edit
+        
+        content_column.controls = [
+            ft.Text("Módulo de Correcciones (Data Integrity)", size=20, weight="bold"), 
+            ft.Row([tf_search, ft.IconButton(ft.icons.SEARCH, on_click=search_for_edit)]),
+            col_res
+        ]
+        page.update()
     def build_audit_view(page, content_column, current_user):
         
         if current_user["role"] != "ADMIN":
