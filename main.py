@@ -1114,8 +1114,9 @@ def main(page: ft.Page):
         def search_for_edit(e):
             t = f"%{tf_search.value}%"
             # Buscamos items activos para corregir
+            # AGREGAMOS i.material_id (índice 8) para buscar sus pruebas
             query = """
-                SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.manufacturer, i.quantity, i.expiry_date, i.status 
+                SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.manufacturer, i.quantity, i.expiry_date, i.status, i.material_id 
                 FROM inventory i JOIN materials m ON i.material_id=m.id 
                 WHERE i.lot_internal ILIKE %s OR m.name ILIKE %s 
                 ORDER BY i.id DESC
@@ -1128,7 +1129,7 @@ def main(page: ft.Page):
                 col_res.controls.append(ft.Text("No se encontraron lotes."))
 
             for d in data:
-                # d = [0:id, 1:name, 2:lot_int, 3:lot_ven, 4:mfg, 5:qty, 6:exp, 7:status]
+                # d = [0:id, 1:name, 2:lot_int, 3:lot_ven, 4:mfg, 5:qty, 6:exp, 7:status, 8:mat_id]
                 
                 # Tarjeta de Lote
                 col_res.controls.append(
@@ -1148,9 +1149,10 @@ def main(page: ft.Page):
             page.update()
 
         def open_correction_dialog(data):
-            # data = [id, name, lot_int, lot_ven, mfg, qty, exp, status]
+            # data = [id, name, lot_int, lot_ven, mfg, qty, exp, status, mat_id]
             item_id = data[0]
             lot_int = data[2]
+            mat_id = data[8]
             
             # 1. CAMPOS ALMACEN (Pre-cargados)
             tf_lot_ven = ft.TextField(label="Lote Proveedor", value=str(data[3] or ""))
@@ -1158,38 +1160,71 @@ def main(page: ft.Page):
             tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(data[5]), keyboard_type=ft.KeyboardType.NUMBER)
             tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(data[6]))
             
-            # 2. CAMPOS LABORATORIO (Busca si existen)
+            # 2. CAMPOS LABORATORIO GENERALES
             lab_res = db.execute_query(
-                "SELECT id, analysis_num, bib_reference, conclusion, observations FROM lab_results WHERE inventory_id=%s",
+                "SELECT id, analysis_num, bib_reference, conclusion, observations, result_data FROM lab_results WHERE inventory_id=%s",
                 (item_id,), fetch=True
             )
             
             has_lab_data = False
             lab_id = None
-            old_lab = ["", "", "", ""] # Num, Ref, Concl, Obs
+            old_lab_general = ["", "", "", ""] # Num, Ref, Concl, Obs
+            old_results_json = {}
+            test_inputs = [] # Lista de TextFields para resultados
 
             if lab_res:
                 has_lab_data = True
                 lab_id = lab_res[0][0]
-                old_lab = [
+                old_lab_general = [
                     str(lab_res[0][1] or ""), 
                     str(lab_res[0][2] or ""), 
                     str(lab_res[0][3] or ""), 
                     str(lab_res[0][4] or "")
                 ]
+                
+                # Cargar JSON de resultados actuales
+                raw_json = lab_res[0][5]
+                if isinstance(raw_json, dict):
+                    old_results_json = raw_json
+                elif raw_json:
+                    try:
+                        old_results_json = json.loads(raw_json)
+                    except:
+                        old_results_json = {}
+
+                # Traer Perfil de Pruebas para generar campos
+                profile = db.execute_query(
+                    "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
+                    (mat_id,), fetch=True
+                ) or []
+                
+                # Generar un TextField por cada prueba del perfil
+                for p in profile:
+                    test_name = p[0]
+                    spec = p[1]
+                    current_val = old_results_json.get(test_name, "")
+                    
+                    # Guardamos el nombre de la prueba en 'data' para identificarlo al guardar
+                    field = ft.TextField(
+                        label=f"{test_name} (Esp: {spec})", 
+                        value=str(current_val),
+                        data=test_name, # Clave para el JSON
+                        disabled=not has_lab_data
+                    )
+                    test_inputs.append(field)
 
             # Controles UI Laboratorio
-            tf_ana_num = ft.TextField(label="No. Análisis", value=old_lab[0], disabled=not has_lab_data)
-            tf_bib_ref = ft.TextField(label="Referencia", value=old_lab[1], disabled=not has_lab_data)
-            tf_obs_lab = ft.TextField(label="Observaciones Lab", value=old_lab[3], multiline=True, disabled=not has_lab_data)
+            tf_ana_num = ft.TextField(label="No. Análisis", value=old_lab_general[0], disabled=not has_lab_data)
+            tf_bib_ref = ft.TextField(label="Referencia", value=old_lab_general[1], disabled=not has_lab_data)
+            tf_obs_lab = ft.TextField(label="Observaciones Lab", value=old_lab_general[3], multiline=True, disabled=not has_lab_data)
             dd_concl = ft.Dropdown(
                 label="Dictamen", 
                 options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")],
-                value=old_lab[2] if old_lab[2] else None,
+                value=old_lab_general[2] if old_lab_general[2] else None,
                 disabled=not has_lab_data
             )
             
-            lab_section_title = "Datos de Laboratorio (Editar)" if has_lab_data else "Datos de Laboratorio (No disponible - Lote sin analizar)"
+            lab_section_title = "Datos de Laboratorio" if has_lab_data else "Datos de Laboratorio (Lote sin analizar)"
             lab_section_color = "blue" if has_lab_data else "grey"
 
             # 3. MOTIVO (ALCOA)
@@ -1222,19 +1257,33 @@ def main(page: ft.Page):
 
                 # --- Comparar LABORATORIO ---
                 lab_update_needed = False
+                new_results_json = old_results_json.copy()
+
                 if has_lab_data:
-                    if tf_ana_num.value != old_lab[0]: 
-                        changes.append(f"Ana#: '{old_lab[0]}' -> '{tf_ana_num.value}'")
+                    # Datos Generales Lab
+                    if tf_ana_num.value != old_lab_general[0]: 
+                        changes.append(f"Ana#: '{old_lab_general[0]}' -> '{tf_ana_num.value}'")
                         lab_update_needed = True
-                    if tf_bib_ref.value != old_lab[1]: 
-                        changes.append(f"Ref: '{old_lab[1]}' -> '{tf_bib_ref.value}'")
+                    if tf_bib_ref.value != old_lab_general[1]: 
+                        changes.append(f"Ref: '{old_lab_general[1]}' -> '{tf_bib_ref.value}'")
                         lab_update_needed = True
-                    if dd_concl.value != old_lab[2]:   
-                        changes.append(f"Dictamen: '{old_lab[2]}' -> '{dd_concl.value}'")
+                    if dd_concl.value != old_lab_general[2]:   
+                        changes.append(f"Dictamen: '{old_lab_general[2]}' -> '{dd_concl.value}'")
                         lab_update_needed = True
-                    if tf_obs_lab.value != old_lab[3]: 
-                        changes.append(f"Obs: '{old_lab[3]}' -> '{tf_obs_lab.value}'")
+                    if tf_obs_lab.value != old_lab_general[3]: 
+                        changes.append(f"Obs: '{old_lab_general[3]}' -> '{tf_obs_lab.value}'")
                         lab_update_needed = True
+                    
+                    # RESULTADOS DE PRUEBAS INDIVIDUALES
+                    for field in test_inputs:
+                        test_key = field.data
+                        new_val = field.value
+                        old_val = str(old_results_json.get(test_key, ""))
+                        
+                        if new_val != old_val:
+                            changes.append(f"Prueba '{test_key}': {old_val} -> {new_val}")
+                            new_results_json[test_key] = new_val # Actualizamos el diccionario
+                            lab_update_needed = True
 
                 if not changes:
                     page.snack_bar = ft.SnackBar(ft.Text("No se detectaron cambios."))
@@ -1251,13 +1300,16 @@ def main(page: ft.Page):
                     
                     # 2. Update Lab (si aplica)
                     if lab_update_needed and lab_id:
+                        # Convertimos el nuevo dict a JSON string
+                        json_str = json.dumps(new_results_json)
+                        
                         db.execute_query(
-                            "UPDATE lab_results SET analysis_num=%s, bib_reference=%s, conclusion=%s, observations=%s WHERE id=%s",
-                            (tf_ana_num.value, tf_bib_ref.value, dd_concl.value, tf_obs_lab.value, lab_id)
+                            "UPDATE lab_results SET analysis_num=%s, bib_reference=%s, conclusion=%s, observations=%s, result_data=%s WHERE id=%s",
+                            (tf_ana_num.value, tf_bib_ref.value, dd_concl.value, tf_obs_lab.value, json_str, lab_id)
                         )
                         
                         # LOGICA ESPECIAL: Si cambia el dictamen, actualizamos el status del inventario
-                        if dd_concl.value != old_lab[2]:
+                        if dd_concl.value != old_lab_general[2]:
                             new_status = "LIBERADO" if dd_concl.value == "APROBADO" else "RECHAZADO"
                             db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (new_status, item_id))
                             changes.append(f"AUTO-STATUS: '{data[7]}' -> '{new_status}'")
@@ -1279,6 +1331,9 @@ def main(page: ft.Page):
                     page.update()
 
             # Dialog Content
+            # Agrupamos los campos de pruebas en una columna
+            tests_column = ft.Column(test_inputs, spacing=5) if test_inputs else ft.Text("No hay pruebas configuradas", italic=True)
+
             page.dialog = ft.AlertDialog(
                 title=ft.Text(f"Corregir: {lot_int}"),
                 content=ft.Column([
@@ -1286,7 +1341,10 @@ def main(page: ft.Page):
                     tf_lot_ven, tf_mfg, tf_qty, tf_exp,
                     ft.Divider(),
                     ft.Text(lab_section_title, color=lab_section_color, weight="bold"),
-                    tf_ana_num, tf_bib_ref, dd_concl, tf_obs_lab,
+                    tf_ana_num, tf_bib_ref, 
+                    ft.Text("Resultados de Pruebas:", weight="bold", size=14),
+                    tests_column, # Aquí van los campos dinámicos
+                    dd_concl, tf_obs_lab,
                     ft.Divider(),
                     ft.Text("Integridad de Datos (ALCOA)", weight="bold"),
                     tf_reason
