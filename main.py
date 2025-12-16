@@ -135,17 +135,21 @@ def log_audit(user, action, details):
     db.execute_query("INSERT INTO audit_trail (user_name, action, details) VALUES (%s, %s, %s)", (user, action, details))
 # --- FUNCIÓN PDF CORREGIDA (Método Javascript) ---
 # Se utiliza el nombre open_pdf_in_browser para ser consistente con el módulo LAB
+# --- FUNCIÓN PDF CORREGIDA (Método Javascript) ---
+# Se utiliza el nombre open_pdf_in_browser para ser consistente con el módulo LAB
+
 def open_pdf_in_browser(page, filename, content_dict, test_results):
     try:
         pdf = FPDF()
         pdf.add_page()
-        
-        # --- DISEÑO DEL PDF ---
+
+        # DISEÑO DEL PDF
         pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, "CERTIFICADO DE ANALISIS", ln=1, align="C")
+
         pdf.set_font("Arial", size=10)
         pdf.ln(5)
-        
+
         # Datos Generales
         for key, value in content_dict.items():
             if key not in ["Observaciones", "Conclusión"]:
@@ -153,29 +157,30 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
                 pdf.cell(50, 8, txt=f"{key}:", border=0)
                 pdf.set_font("Arial", size=10)
                 pdf.cell(0, 8, txt=str(value), ln=1, border=0)
-        
+
         # Se incluye Dictamen/Observaciones en el área de datos generales
         if "Conclusión" in content_dict:
             pdf.set_font("Arial", "B", 10)
             pdf.cell(50, 8, txt="Dictamen:", border=0)
             pdf.set_font("Arial", size=10)
             pdf.cell(0, 8, txt=str(content_dict["Conclusión"]), ln=1, border=0)
-        
+
         pdf.ln(5)
 
         # Tabla de Resultados
         pdf.set_fill_color(240, 240, 240)
         pdf.set_font("Arial", "B", 10)
+
         pdf.cell(60, 8, "Prueba", 1, fill=True)
         pdf.cell(70, 8, "Especificacion", 1, fill=True)
         pdf.cell(60, 8, "Resultado", 1, ln=1, fill=True)
-        
+
         pdf.set_font("Arial", size=10)
         for test in test_results:
             t_name = str(test.get('test', ''))
             t_spec = str(test.get('spec', ''))
             t_res = str(test.get('result', ''))
-            
+
             pdf.cell(60, 8, t_name, 1)
             pdf.cell(70, 8, t_spec, 1)
             pdf.cell(60, 8, t_res, 1, ln=1)
@@ -191,21 +196,22 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
         # --- GENERACIÓN Y DESCARGA ---
         temp_path = "/tmp/temp_cert.pdf"
         pdf.output(temp_path)
-        
+
         with open(temp_path, "rb") as f:
             b64_pdf = base64.b64encode(f.read()).decode('utf-8')
-        
+
         # TRUCO JAVASCRIPT para descarga directa
         page.run_js(f"""
-        var link = document.createElement('a');
-        link.href = "data:application/pdf;base64,{b64_pdf}";
-        link.download = "{filename}";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+            var link = document.createElement('a');
+            link.href = "data:application/pdf;base64,{b64_pdf}";
+            link.download = "{filename}";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         """)
-        
+
         return True
+
     except Exception as e:
         logger.error(f"Error PDF: {e}")
         return False
@@ -773,111 +779,136 @@ def main(page: ft.Page):
             
             page.update()
 
-        def show_full_details(page, inv_id, mat_name, lot):
-            # 1. Obtener Datos Generales
-            inv_data = db.execute_query(
-                "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
-                (inv_id,), fetch=True
-            )[0]
-            # 2. Obtener Resultados de Laboratorio (si existen)
-            lab_data = db.execute_query(
-                "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
-                (inv_id,), fetch=True
+    def show_full_details(page, inv_id, mat_name, lot):
+        # 1. Obtener Datos Generales
+        inv_data = db.execute_query(
+            "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
+            (inv_id,), fetch=True
+        )[0]
+        
+        # 2. Obtener Resultados de Laboratorio (si existen)
+        lab_data = db.execute_query(
+            "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
+            (inv_id,), fetch=True
+        )
+        
+        # Construir UI de Detalles
+        details_controls = [
+            ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
+            ft.Text(f"Lote Interno: {lot}", size=16),
+            ft.Divider(),
+            ft.Text("Información de Almacén:", weight="bold"),
+            ft.Text(f"Lote Proveedor: {inv_data[0]}"),
+            ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
+            ft.Text(f"Cantidad: {inv_data[2]} kg"),
+            ft.Text(f"Caducidad: {inv_data[3]}"),
+            ft.Text(f"Estado Actual: {inv_data[4]}"),
+            ft.Divider(),
+        ]
+        
+        # 3. Si hay análisis, mostrar tabla comparativa y botón de certificado
+        if lab_data:
+            res = lab_data[0] # Tomamos el primer análisis
+            
+            # --- CORRECCIÓN CRÍTICA AQUÍ ---
+            # Si res[1] ya es dict (por JSONB), lo usamos directo. Si es texto, lo convertimos.
+            if isinstance(res[1], dict):
+                results_json = res[1]
+            else:
+                results_json = json.loads(res[1])
+            # -------------------------------
+            
+            conclusion = res[2]
+            observations = res[6]
+            
+            details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
+            details_controls.append(ft.Text(f"Analista: {res[0]}"))
+            details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
+            details_controls.append(ft.Text(f"Referencia: {res[5]}"))
+            details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
+                                          color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED,
+                                          weight="bold"))
+            
+            # Reconstruir tabla comparativa (Specs vs Resultado)
+            mat_id = inv_data[5]
+            profile_specs = db.execute_query(
+                "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
+                (mat_id,), fetch=True
             )
             
-            # Construir UI de Detalles
-            details_controls = [
-                ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
-                ft.Text(f"Lote Interno: {lot}", size=16),
-                ft.Divider(),
-                ft.Text("Información de Almacén:", weight="bold"),
-                ft.Text(f"Lote Proveedor: {inv_data[0]}"),
-                ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
-                ft.Text(f"Cantidad: {inv_data[2]} kg"),
-                ft.Text(f"Caducidad: {inv_data[3]}"),
-                ft.Text(f"Estado Actual: {inv_data[4]}"),
-                ft.Divider(),
-            ]
-
-            # Si hay análisis, mostrar tabla comparativa
-            if lab_data:
-                res = lab_data[0] # Tomamos el primer análisis
-                results_json = json.loads(res[1]) # JSON con resultados
-                conclusion = res[2]
-                observations = res[6] # Obs index 6
-                
-                details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
-                details_controls.append(ft.Text(f"Analista: {res[0]}"))
-                details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
-                details_controls.append(ft.Text(f"Referencia: {res[5]}"))
-                details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
-                                                color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED, 
-                                                weight="bold"))
-                
-                # Reconstruir tabla comparativa (Specs vs Resultado)
-                mat_id = inv_data[5]
-                profile_specs = db.execute_query(
-                    "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
-                    (mat_id,), fetch=True
-                )
-                
-                dt = ft.DataTable(columns=[
-                    ft.DataColumn(ft.Text("Prueba")),
-                    ft.DataColumn(ft.Text("Especificación")),
-                    ft.DataColumn(ft.Text("Resultado")),
-                ], rows=[])
-                # Lista para enviar al generador de PDF
-                pdf_data_list = []
-                
-                if profile_specs:
-                    for spec in profile_specs:
-                        test_name = spec[0]
-                        test_spec = spec[1]
-                        # Buscar resultado en el JSON, si no existe poner 'N/A'
-                        test_res = results_json.get(test_name, "N/A")
-                        
-                        dt.rows.append(ft.DataRow(cells=[
-                            ft.DataCell(ft.Text(test_name)),
-                            ft.DataCell(ft.Text(test_spec)),
-                            ft.DataCell(ft.Text(str(test_res))),
-                        ]))
-                        
-                        pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
+            dt = ft.DataTable(columns=[
+                ft.DataColumn(ft.Text("Prueba")),
+                ft.DataColumn(ft.Text("Especificación")),
+                ft.DataColumn(ft.Text("Resultado")),
+            ], rows=[])
+            
+            # Lista para enviar al generador de PDF
+            pdf_data_list = []
+            
+            if profile_specs:
+                for spec in profile_specs:
+                    test_name = spec[0]
+                    test_spec = spec[1]
+                    # Buscar resultado en el JSON, si no existe poner 'N/A'
+                    test_res = results_json.get(test_name, "N/A")
+                    
+                    dt.rows.append(ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(test_name)),
+                        ft.DataCell(ft.Text(test_spec)),
+                        ft.DataCell(ft.Text(str(test_res))),
+                    ]))
+                    
+                    pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
                 
                 details_controls.append(dt)
+            
+            # Observaciones en detalle
+            if observations:
+                details_controls.append(ft.Text("Observaciones:", weight="bold"))
+                details_controls.append(ft.Text(observations, italic=True))
+            
+            # --- COMPONENTE DE CERTIFICADO RECUPERADO ---
+            def print_coa(e):
+                pdf_name = f"CoA_REPRINT_{lot}.pdf"
+                pdf_content = {
+                    "Producto": mat_name, 
+                    "Lote": lot, 
+                    "Fabricante": str(inv_data[1] or 'N/A'),
+                    "Conclusión": conclusion, 
+                    "Observaciones": observations
+                }
+                # Llamada a la función global open_pdf_in_browser
+                success = open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
                 
-                # Observaciones en detalle
-                if observations:
-                    details_controls.append(ft.Text("Observaciones:", weight="bold"))
-                    details_controls.append(ft.Text(observations, italic=True))
-                    
-                # Botón de Generar PDF
-                def print_coa(e):
-                    pdf_name = f"CoA_REPRINT_{lot}.pdf"
-                    pdf_content = {"Producto": mat_name, "Lote": lot, "Fabricante": str(inv_data[1] or 'N/A'), 
-                                   "Conclusión": conclusion, "Observaciones": observations}
-                    open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
+                if success:
                     page.snack_bar = ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}"))
-                    page.snack_bar.open = True
-                    page.update()
-                
-                details_controls.append(ft.ElevatedButton("Descargar Certificado (PDF)",
-                                                         icon=ft.icons.PICTURE_AS_PDF, on_click=print_coa))
+                else:
+                    page.snack_bar = ft.SnackBar(ft.Text("Error generando el PDF"))
+                page.snack_bar.open = True
+                page.update()
 
-            else:
-                details_controls.append(ft.Text("! Este material aún no ha sido analizado por el laboratorio.",
-                                                color=ft.colors.ORANGE))
+            details_controls.append(ft.Container(height=20))
+            details_controls.append(ft.ElevatedButton(
+                "Descargar Certificado (PDF)", 
+                icon=ft.icons.PICTURE_AS_PDF, 
+                bgcolor=ft.colors.GREEN,
+                color=ft.colors.WHITE,
+                on_click=print_coa
+            ))
+            # ---------------------------------------------
 
-            # Mostrar Dialogo
-            dlg = ft.AlertDialog(
-                title=ft.Text("Expediente de Lote"),
-                content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
-                actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
-            )
-            page.dialog = dlg
-            dlg.open = True
-            page.update()
-        
+        else:
+            details_controls.append(ft.Text("⚠️ Este material aún no ha sido analizado por el laboratorio.", color=ft.colors.ORANGE))
+
+        # Mostrar Dialogo
+        dlg = ft.AlertDialog(
+            title=ft.Text("Expediente de Lote"),
+            content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
+            actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+        )
+        page.dialog = dlg
+        dlg.open = True
+        page.update()        
         search_tf.on_submit = perform_search
         content_column.controls = [
             ft.Text("Consulta General & Certificados", size=20, weight="bold"),
