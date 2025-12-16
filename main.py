@@ -741,183 +741,197 @@ def main(page: ft.Page):
         page.update()
 # 6. MÓDULO DE CONSULTA Y CERTIFICADOS
     def build_query_view(page, content_column, current_user):
-        search_tf = ft.TextField(label="Buscar por Lote o Nombre", suffix_icon=ft.icons.SEARCH, expand=True)
-        results_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
+        # 1. UI: Barra de Búsqueda
+        search_tf = ft.TextField(
+            label="Buscar por Lote, Código o Nombre", 
+            suffix_icon=ft.icons.SEARCH, 
+            expand=True
+        )
+        
+        # 2. UI: Columna de Resultados
+        # CORRECCIÓN IMPORTANTE: Quitamos 'scroll' y 'expand' para evitar pantalla blanca
+        results_col = ft.Column(spacing=10)
 
+        # 3. Lógica de Búsqueda
         def perform_search(e):
             term = f"%{search_tf.value or ''}%"
-            # Traemos inventario con nombre de material
-            query = """
-            SELECT i.id, m.code, m.name, i.lot_internal, i.status, i.expiry_date, i.quantity
-            FROM inventory i
-            JOIN materials m ON i.material_id = m.id
-            WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s OR m.code ILIKE %s
-            ORDER BY i.id DESC
-            """
-            items = db.execute_query(query, (term, term, term), fetch=True) or []
             
-            results_col.controls.clear()
-
-            if not items:
-                results_col.controls.append(ft.Text("No se encontraron registros."))
-            
-            for item in items:
-                # Color del estado
-                status_color = ft.colors.GREEN if item[4] == "LIBERADO" else ft.colors.RED if item[4] == "RECHAZADO" else ft.colors.ORANGE
+            try:
+                # Query seguro a la base de datos
+                query = """
+                    SELECT i.id, m.code, m.name, i.lot_internal, i.status, i.expiry_date, i.quantity 
+                    FROM inventory i 
+                    JOIN materials m ON i.material_id = m.id 
+                    WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s OR m.code ILIKE %s 
+                    ORDER BY i.id DESC
+                """
+                items = db.execute_query(query, (term, term, term), fetch=True) or []
                 
-                results_col.controls.append(
-                    ft.Card(
-                        content=ft.ListTile(
-                            leading=ft.Icon(ft.icons.CIRCLE, color=status_color),
-                            title=ft.Text(f"{item[2]} ({item[1]})"),
-                            subtitle=ft.Text(f"Lote: {item[3]} | Estado: {item[4]}"),
-                            trailing=ft.IconButton(ft.icons.VISIBILITY, tooltip="Ver Detalles / CoA",
-                                                   on_click=lambda e, iid=item[0], name=item[2], lot=item[3]: show_full_details(page, iid, name, lot))
+                results_col.controls.clear()
+                
+                if not items:
+                    results_col.controls.append(ft.Text("No se encontraron registros.", italic=True))
+                
+                for item in items:
+                    # item: [0:id, 1:code, 2:name, 3:lot, 4:status, 5:expiry, 6:qty]
+                    
+                    # Definir color según estado
+                    status_color = ft.colors.ORANGE
+                    if item[4] == "LIBERADO":
+                        status_color = ft.colors.GREEN
+                    elif item[4] == "RECHAZADO":
+                        status_color = ft.colors.RED
+                    
+                    # Tarjeta de resultado
+                    results_col.controls.append(
+                        ft.Card(
+                            content=ft.ListTile(
+                                leading=ft.Icon(ft.icons.CIRCLE, color=status_color),
+                                title=ft.Text(f"{item[2]} ({item[1]})"),
+                                subtitle=ft.Text(f"Lote: {item[3]} | Est: {item[4]}"),
+                                trailing=ft.IconButton(
+                                    ft.icons.VISIBILITY, 
+                                    tooltip="Ver Detalles / CoA",
+                                    on_click=lambda e, iid=item[0], name=item[2], lot=item[3]: show_full_details(page, iid, name, lot)
+                                )
+                            )
                         )
                     )
-                )
-            
-            page.update()
-
-    def show_full_details(page, inv_id, mat_name, lot):
-        # 1. Obtener Datos Generales
-        inv_data = db.execute_query(
-            "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
-            (inv_id,), fetch=True
-        )[0]
-        
-        # 2. Obtener Resultados de Laboratorio (si existen)
-        lab_data = db.execute_query(
-            "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
-            (inv_id,), fetch=True
-        )
-        
-        # Construir UI de Detalles
-        details_controls = [
-            ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
-            ft.Text(f"Lote Interno: {lot}", size=16),
-            ft.Divider(),
-            ft.Text("Información de Almacén:", weight="bold"),
-            ft.Text(f"Lote Proveedor: {inv_data[0]}"),
-            ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
-            ft.Text(f"Cantidad: {inv_data[2]} kg"),
-            ft.Text(f"Caducidad: {inv_data[3]}"),
-            ft.Text(f"Estado Actual: {inv_data[4]}"),
-            ft.Divider(),
-        ]
-        
-        # 3. Si hay análisis, mostrar tabla comparativa y botón de certificado
-        if lab_data:
-            res = lab_data[0] # Tomamos el primer análisis
-            
-            # --- CORRECCIÓN CRÍTICA AQUÍ ---
-            # Si res[1] ya es dict (por JSONB), lo usamos directo. Si es texto, lo convertimos.
-            if isinstance(res[1], dict):
-                results_json = res[1]
-            else:
-                results_json = json.loads(res[1])
-            # -------------------------------
-            
-            conclusion = res[2]
-            observations = res[6]
-            
-            details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
-            details_controls.append(ft.Text(f"Analista: {res[0]}"))
-            details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
-            details_controls.append(ft.Text(f"Referencia: {res[5]}"))
-            details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
-                                          color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED,
-                                          weight="bold"))
-            
-            # Reconstruir tabla comparativa (Specs vs Resultado)
-            mat_id = inv_data[5]
-            profile_specs = db.execute_query(
-                "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
-                (mat_id,), fetch=True
-            )
-            
-            dt = ft.DataTable(columns=[
-                ft.DataColumn(ft.Text("Prueba")),
-                ft.DataColumn(ft.Text("Especificación")),
-                ft.DataColumn(ft.Text("Resultado")),
-            ], rows=[])
-            
-            # Lista para enviar al generador de PDF
-            pdf_data_list = []
-            
-            if profile_specs:
-                for spec in profile_specs:
-                    test_name = spec[0]
-                    test_spec = spec[1]
-                    # Buscar resultado en el JSON, si no existe poner 'N/A'
-                    test_res = results_json.get(test_name, "N/A")
-                    
-                    dt.rows.append(ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(test_name)),
-                        ft.DataCell(ft.Text(test_spec)),
-                        ft.DataCell(ft.Text(str(test_res))),
-                    ]))
-                    
-                    pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
-                
-                details_controls.append(dt)
-            
-            # Observaciones en detalle
-            if observations:
-                details_controls.append(ft.Text("Observaciones:", weight="bold"))
-                details_controls.append(ft.Text(observations, italic=True))
-            
-            # --- COMPONENTE DE CERTIFICADO RECUPERADO ---
-            def print_coa(e):
-                pdf_name = f"CoA_REPRINT_{lot}.pdf"
-                pdf_content = {
-                    "Producto": mat_name, 
-                    "Lote": lot, 
-                    "Fabricante": str(inv_data[1] or 'N/A'),
-                    "Conclusión": conclusion, 
-                    "Observaciones": observations
-                }
-                # Llamada a la función global open_pdf_in_browser
-                success = open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
-                
-                if success:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}"))
-                else:
-                    page.snack_bar = ft.SnackBar(ft.Text("Error generando el PDF"))
-                page.snack_bar.open = True
                 page.update()
 
-            details_controls.append(ft.Container(height=20))
-            details_controls.append(ft.ElevatedButton(
-                "Descargar Certificado (PDF)", 
-                icon=ft.icons.PICTURE_AS_PDF, 
-                bgcolor=ft.colors.GREEN,
-                color=ft.colors.WHITE,
-                on_click=print_coa
-            ))
-            # ---------------------------------------------
+            except Exception as ex:
+                # Manejo de error para evitar pantalla blanca silenciosa
+                logger.error(f"Error en búsqueda: {ex}")
+                results_col.controls.append(ft.Text(f"Error al buscar: {ex}", color="red"))
+                page.update()
 
-        else:
-            details_controls.append(ft.Text("⚠️ Este material aún no ha sido analizado por el laboratorio.", color=ft.colors.ORANGE))
+        # 4. Función de Detalles (CORREGIDA: JSONB y PDF)
+        def show_full_details(page, inv_id, mat_name, lot):
+            # Obtener Datos Generales
+            inv_data = db.execute_query(
+                "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
+                (inv_id,), fetch=True
+            )[0]
+            
+            # Obtener Resultados de Laboratorio
+            lab_data = db.execute_query(
+                "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
+                (inv_id,), fetch=True
+            )
+            
+            details_controls = [
+                ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
+                ft.Text(f"Lote Interno: {lot}", size=16),
+                ft.Divider(),
+                ft.Text("Información de Almacén:", weight="bold"),
+                ft.Text(f"Lote Proveedor: {inv_data[0]}"),
+                ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
+                ft.Text(f"Cantidad: {inv_data[2]} kg"),
+                ft.Text(f"Caducidad: {inv_data[3]}"),
+                ft.Text(f"Estado Actual: {inv_data[4]}"),
+                ft.Divider(),
+            ]
+            
+            # Lógica de Laboratorio
+            if lab_data:
+                res = lab_data[0]
+                
+                # --- FIX CRITICO JSON ---
+                if isinstance(res[1], dict):
+                    results_json = res[1]
+                else:
+                    results_json = json.loads(res[1])
+                # ------------------------
+                
+                conclusion = res[2]
+                observations = res[6]
+                
+                details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
+                details_controls.append(ft.Text(f"Analista: {res[0]}"))
+                details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
+                details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
+                                              color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED,
+                                              weight="bold"))
+                
+                # Tabla de Resultados
+                mat_id = inv_data[5]
+                profile_specs = db.execute_query(
+                    "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
+                    (mat_id,), fetch=True
+                )
+                
+                dt = ft.DataTable(columns=[
+                    ft.DataColumn(ft.Text("Prueba")),
+                    ft.DataColumn(ft.Text("Especificación")),
+                    ft.DataColumn(ft.Text("Resultado")),
+                ], rows=[])
+                
+                pdf_data_list = []
+                
+                if profile_specs:
+                    for spec in profile_specs:
+                        test_name = spec[0]
+                        test_spec = spec[1]
+                        test_res = results_json.get(test_name, "N/A")
+                        
+                        dt.rows.append(ft.DataRow(cells=[
+                            ft.DataCell(ft.Text(test_name)),
+                            ft.DataCell(ft.Text(test_spec)),
+                            ft.DataCell(ft.Text(str(test_res))),
+                        ]))
+                        pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
+                    
+                    details_controls.append(dt)
+                
+                if observations:
+                    details_controls.append(ft.Text(f"Obs: {observations}", italic=True))
+                
+                # Botón PDF
+                def print_coa(e):
+                    pdf_name = f"CoA_REPRINT_{lot}.pdf"
+                    pdf_content = {
+                        "Producto": mat_name, "Lote": lot, 
+                        "Fabricante": str(inv_data[1] or 'N/A'),
+                        "Conclusión": conclusion, "Observaciones": observations
+                    }
+                    success = open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
+                    if success:
+                        page.snack_bar = ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}"))
+                    else:
+                        page.snack_bar = ft.SnackBar(ft.Text("Error PDF"))
+                    page.snack_bar.open = True
+                    page.update()
 
-        # Mostrar Dialogo
-        dlg = ft.AlertDialog(
-            title=ft.Text("Expediente de Lote"),
-            content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
-            actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
-        )
-        page.dialog = dlg
-        dlg.open = True
-        page.update()        
+                details_controls.append(ft.Container(height=20))
+                details_controls.append(ft.ElevatedButton("Descargar Certificado", icon=ft.icons.PICTURE_AS_PDF, on_click=print_coa, bgcolor="green", color="white"))
+
+            else:
+                details_controls.append(ft.Text("⚠️ Sin análisis de laboratorio.", color="orange"))
+
+            # Mostrar Dialogo
+            dlg = ft.AlertDialog(
+                title=ft.Text("Expediente de Lote"),
+                content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+            )
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
+
+        # 5. MONTAJE DE LA VISTA
         search_tf.on_submit = perform_search
+
+        # Primero ponemos los controles visuales
         content_column.controls = [
             ft.Text("Consulta General & Certificados", size=20, weight="bold"),
             ft.Row([search_tf, ft.IconButton(ft.icons.SEARCH, on_click=perform_search)]),
+            ft.Divider(),
             results_col
         ]
-        # Cargar todo al inicio
-        perform_search(None)
+        page.update()
 
+        # Al final ejecutamos la búsqueda (para que si falla, la UI ya esté cargada)
+        perform_search(None)
     # 7. GESTIÓN DE USUARIOS (SOLO ADMIN)
     # Las funciones open_edit_user y render_users se anidan dentro de build_users_view para simplificar el scope
     def build_users_view(page, content_column, current_user):
