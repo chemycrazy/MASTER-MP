@@ -224,7 +224,7 @@ def main(page: ft.Page):
         visible=False
     )
     
-content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
+    content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
     # --- 1. CONFIGURACIÓN DE MENÚ DINÁMICO ---
     
@@ -251,7 +251,6 @@ content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
     def change_tab(e):
         idx = e.control.selected_index
-        # Verificamos que el índice sea válido dentro de los módulos actuales del usuario
         if current_modules and idx < len(current_modules):
             module_key = current_modules[idx]
             content_column.controls.clear()
@@ -263,7 +262,6 @@ content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
     def configure_menu_for_role(role):
         current_modules.clear()
-        # Si el rol no tiene permisos definidos, por seguridad solo damos CONSULTA
         allowed_keys = ROLE_PERMISSIONS.get(role, ["CONSULTA"])
         
         nav_destinations = []
@@ -278,7 +276,6 @@ content_column = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
         nav_bar.destinations = nav_destinations
         nav_bar.visible = True
         page.update()
-
     def build_login():
         user_tf = ft.TextField(label="Usuario")
         pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
