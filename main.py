@@ -266,7 +266,7 @@ def main(page: ft.Page):
                 config = MODULES_MAP[key]
                 current_modules.append(key)
                 nav_destinations.append(
-                    ft.NavigationDestination(icon=config["icon"], label=config["label"])
+                    ft.NavigationBarDestination(icon=config["icon"], label=config["label"])
                 )
         
         nav_bar.destinations = nav_destinations
