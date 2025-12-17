@@ -224,14 +224,14 @@ def main(page: ft.Page):
     
 # Mapa de todos los módulos disponibles
     MODULES_MAP = {
-        "CATALOGO":   {"icon": ft.Icons.BOOK,          "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
-        "ALMACEN":    {"icon": ft.Icons.INVENTORY,     "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
-        "MUESTREO":   {"icon": ft.Icons.SCIENCE,       "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
-        "LAB":        {"icon": ft.Icons.ASSIGNMENT,    "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
-        "CONSULTA":   {"icon": ft.Icons.SEARCH,        "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
-        "CORRECCION": {"icon": ft.Icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
-        "USUARIOS":   {"icon": ft.Icons.PEOPLE,        "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
-        "ADMIN":      {"icon": ft.Icons.SECURITY,      "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)}
+        "CATALOGO":   {"icon": ft.icons.BOOK,          "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
+        "ALMACEN":    {"icon": ft.icons.INVENTORY,     "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
+        "MUESTREO":   {"icon": ft.icons.SCIENCE,       "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
+        "LAB":        {"icon": ft.icons.ASSIGNMENT,    "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
+        "CONSULTA":   {"icon": ft.icons.SEARCH,        "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
+        "CORRECCION": {"icon": ft.icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
+        "USUARIOS":   {"icon": ft.icons.PEOPLE,        "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
+        "ADMIN":      {"icon": ft.icons.SECURITY,      "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)}
     }    
 # Permisos por Rol
     ROLE_PERMISSIONS = {
@@ -266,7 +266,7 @@ def main(page: ft.Page):
                 config = MODULES_MAP[key]
                 current_modules.append(key)
                 nav_destinations.append(
-                    ft.NavigationBarDestination(icon=config["icon"], label=config["label"])
+                    ft.NavigationDestination(icon=config["icon"], label=config["label"])
                 )
         
         nav_bar.destinations = nav_destinations
@@ -291,7 +291,7 @@ def main(page: ft.Page):
                 list_col.controls.append(ft.ListTile(
                     title=ft.Text(t[1]),
                     subtitle=ft.Text(f"Spec: {t[2]}"),
-                    trailing=ft.IconButton(ft.Icons.DELETE, icon_color=ft.Colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
+                    trailing=ft.IconButton(ft.icons.DELETE, icon_color=ft.colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
                 ))
             page.update()
         
@@ -396,14 +396,14 @@ def main(page: ft.Page):
                 for m in materials:
                     tab_content.controls.append(
                         ft.Card(content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if m[3] else ft.Colors.RED),
+                            leading=ft.Icon(ft.icons.CIRCLE, color=ft.colors.GREEN if m[3] else ft.colors.RED),
                             title=ft.Text(f"{m[1]} - {m[2]}"),
-                            trailing=ft.IconButton(ft.Icons.SETTINGS, tooltip="Configurar Perfil", 
+                            trailing=ft.IconButton(ft.icons.SETTINGS, tooltip="Configurar Perfil", 
                                                    on_click=lambda e, mid=m[0], name=m[2]: open_profile_dialog(page, mid, name))
                         ))
                     )
                 # Botón para agregar materia
-                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Materia Prima", icon=ft.Icons.ADD,
+                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Materia Prima", icon=ft.icons.ADD,
                                                                  on_click=lambda e: add_material_dialog(page, content_column, current_user)))
             
             elif index == 1: # PRUEBAS MASTER
@@ -412,9 +412,9 @@ def main(page: ft.Page):
                 for t in tests:
                     tab_content.controls.append(
                         ft.ListTile(title=ft.Text(t[1]), subtitle=ft.Text(f"Método: {t[2]}"),
-                                     leading=ft.Icon(ft.Icons.CHECK_BOX))
+                                     leading=ft.Icon(ft.icons.CHECK_BOX))
                     )
-                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Prueba Estándar", icon=ft.Icons.ADD,
+                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Prueba Estándar", icon=ft.icons.ADD,
                                                                  on_click=lambda e: add_test_dialog(page, content_column, current_user)))
             page.update()
 
@@ -422,8 +422,8 @@ def main(page: ft.Page):
             selected_index=0,
             animation_duration=300,
             tabs=[
-                ft.Tab(text="Materias Primas", icon=ft.Icons.LAYERS),
-                ft.Tab(text="Pruebas Master", icon=ft.Icons.LIST_ALT),
+                ft.Tab(text="Materias Primas", icon=ft.icons.LAYERS),
+                ft.Tab(text="Pruebas Master", icon=ft.icons.LIST_ALT),
             ],
             on_change=lambda e: render_catalog_content(e.control.selected_index)
         )
@@ -520,8 +520,8 @@ def main(page: ft.Page):
             ft.Container(height=20),
             ft.ElevatedButton(
                 "Ingresar al Almacén",
-                icon=ft.Icons.SAVE_ALT,
-                style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE, color=ft.Colors.WHITE),
+                icon=ft.icons.SAVE_ALT,
+                style=ft.ButtonStyle(bgcolor=ft.colors.BLUE, color=ft.colors.WHITE),
                 on_click=receive_material,
                 width=float('inf')
             )
@@ -543,11 +543,11 @@ def main(page: ft.Page):
             # Campos de entrada
             tf_n = ft.TextField(label="N° de Cuñetes/Envases (N)", keyboard_type=ft.KeyboardType.NUMBER, autofocus=True)
             # Corregido: caracteres especiales rotos
-            txt_formula = ft.Text("Envases a abrir (√N + 1): 0", size=16, weight="bold", color=ft.Colors.BLUE)
+            txt_formula = ft.Text("Envases a abrir (√N + 1): 0", size=16, weight="bold", color=ft.colors.BLUE)
             tf_removed = ft.TextField(label="Cantidad Muestreada (kg)", keyboard_type=ft.KeyboardType.NUMBER, value="0.0")
             
             # Texto informativo de stock actual
-            txt_stock = ft.Text(f"Stock actual: {current_qty} kg", size=12, color=ft.Colors.GREY)
+            txt_stock = ft.Text(f"Stock actual: {current_qty} kg", size=12, color=ft.colors.GREY)
 
             # Función reactiva: Calcula la fórmula apenas el usuario escribe N
             def calculate_formula(e):
@@ -637,11 +637,11 @@ def main(page: ft.Page):
             lv.controls.append(
                 ft.Card(
                     content=ft.ListTile(
-                        leading=ft.Icon(ft.Icons.SCIENCE, color=ft.Colors.ORANGE),
+                        leading=ft.Icon(ft.icons.SCIENCE, color=ft.colors.ORANGE),
                         title=ft.Text(f"{i[1]}"),
                         subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]} kg"),
                         trailing=ft.IconButton(
-                            ft.Icons.ARROW_FORWARD_IOS,
+                            ft.icons.ARROW_FORWARD_IOS,
                             tooltip="Realizar Muestreo",
                             on_click=lambda e, iid=i[0], n=i[1], l=i[2], q=i[3]: open_sampling_dialog(iid, n, l, q)
                         )
@@ -735,231 +735,197 @@ def main(page: ft.Page):
         for p in pending:
             # Corregido: trailing roto
             lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(p[1]), subtitle=ft.Text(p[2]),
-                                                         trailing=ft.IconButton(ft.Icons.PLAY_ARROW, 
+                                                         trailing=ft.IconButton(ft.icons.PLAY_ARROW, 
                                                                                on_click=lambda e, x=p: open_analysis(x[0], x[3], x[1], x[2])))))
         
         content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
         page.update()
 # 6. MÓDULO DE CONSULTA Y CERTIFICADOS
     def build_query_view(page, content_column, current_user):
-        import json # Aseguramos que json esté disponible
+        # 1. UI: Barra de Búsqueda
+        search_tf = ft.TextField(
+            label="Buscar por Lote, Código o Nombre", 
+            suffix_icon=ft.icons.SEARCH, 
+            expand=True
+        )
+        
+        # 2. UI: Columna de Resultados
+        # CORRECCIÓN IMPORTANTE: Quitamos 'scroll' y 'expand' para evitar pantalla blanca
+        results_col = ft.Column(spacing=10)
 
-        # Permisos
-        if current_user["role"] not in ["ADMIN", "CALIDAD", "OPERADOR"]:
-             content_column.controls = [ft.Text("Acceso Denegado", color="red")]
-             page.update()
-             return
-
-        # UI Búsqueda
-        tf_search = ft.TextField(label="Buscar por Lote, Código o Nombre", suffix_icon=ft.Icons.SEARCH, expand=True)
-        # Usamos ScrollMode.AUTO para que no se corte la pantalla si hay muchos resultados
-        col_res = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10, expand=True)
-
-        # --- FUNCIÓN DE DETALLE (La parte compleja) ---
-        def show_detail_dialog(data):
+        # 3. Lógica de Búsqueda
+        def perform_search(e):
+            term = f"%{search_tf.value or ''}%"
+            
             try:
-                # data viene de la búsqueda: [0:id, 1:code, 2:name, 3:lot_int, 4:status, 5:expiry, 6:qty]
-                item_id = data[0]
-                mat_name = data[2]
-                lot_int = data[3]
-
-                # 1. Obtener Datos Extra de Inventario
-                # Usamos fetch=True y tomamos el primero con seguridad
-                inv_rows = db.execute_query(
-                    "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
-                    (item_id,), fetch=True
-                )
+                # Query seguro a la base de datos
+                query = """
+                    SELECT i.id, m.code, m.name, i.lot_internal, i.status, i.expiry_date, i.quantity 
+                    FROM inventory i 
+                    JOIN materials m ON i.material_id = m.id 
+                    WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s OR m.code ILIKE %s 
+                    ORDER BY i.id DESC
+                """
+                items = db.execute_query(query, (term, term, term), fetch=True) or []
                 
-                if not inv_rows:
-                    page.snack_bar = ft.SnackBar(ft.Text("Error: No se encontró el inventario."))
-                    page.snack_bar.open = True
-                    page.update()
-                    return
-
-                inv_data = inv_rows[0] # [lot_ven, mfg, qty, exp, stat, mat_id]
-
-                # Lista de controles visuales
-                details_controls = [
-                    ft.Text(f"Producto: {mat_name}", size=20, weight="bold", color=ft.Colors.BLUE),
-                    ft.Text(f"Lote Interno: {lot_int}", size=16, weight="bold"),
-                    ft.Divider(),
-                    ft.Text("Información de Almacén:", weight="bold"),
-                    ft.Text(f"Lote Proveedor: {inv_data[0]}"),
-                    ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
-                    ft.Text(f"Cantidad: {inv_data[2]} kg"),
-                    ft.Text(f"Caducidad: {inv_data[3]}"),
-                    ft.Text(f"Estado: {inv_data[4]}", weight="bold", 
-                            color=ft.Colors.GREEN if inv_data[4]=="LIBERADO" else ft.Colors.RED),
-                    ft.Divider(),
-                ]
-
-                # 2. Buscar Resultados de Laboratorio
-                lab_rows = db.execute_query(
-                    "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
-                    (item_id,), fetch=True
-                )
-
-                if lab_rows:
-                    res = lab_rows[0]
-                    # --- MANEJO DE JSON (Tu fix) ---
-                    try:
-                        if isinstance(res[1], dict):
-                            results_json = res[1]
-                        elif res[1]:
-                            results_json = json.loads(res[1])
-                        else:
-                            results_json = {}
-                    except:
-                        results_json = {}
-                    
-                    conclusion = res[2]
-                    observations = res[6]
-
-                    details_controls.append(ft.Text("Resultados de Calidad:", weight="bold"))
-                    details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
-                    details_controls.append(ft.Text(f"Analista: {res[0]}"))
-                    details_controls.append(ft.Text(f"Conclusión: {conclusion}", weight="bold", size=16,
-                                                  color=ft.Colors.GREEN if conclusion == "APROBADO" else ft.Colors.RED))
-
-                    # 3. Tabla de Resultados (Tu lógica de perfiles)
-                    mat_id = inv_data[5]
-                    profile_specs = db.execute_query(
-                        "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
-                        (mat_id,), fetch=True
-                    ) or []
-
-                    # Estructura para el PDF
-                    pdf_data_list = []
-                    
-                    dt = ft.DataTable(
-                        columns=[
-                            ft.DataColumn(ft.Text("Prueba")),
-                            ft.DataColumn(ft.Text("Espec.")),
-                            ft.DataColumn(ft.Text("Resultado")),
-                        ], 
-                        rows=[],
-                        border=ft.border.all(1, ft.Colors.GREY_300)
-                    )
-
-                    for spec in profile_specs:
-                        test_name = spec[0]
-                        test_spec = spec[1]
-                        test_res = results_json.get(test_name, "Pendiente")
-                        
-                        dt.rows.append(ft.DataRow(cells=[
-                            ft.DataCell(ft.Text(test_name, size=12)),
-                            ft.DataCell(ft.Text(test_spec, size=12)),
-                            ft.DataCell(ft.Text(str(test_res), weight="bold", size=12)),
-                        ]))
-                        pdf_data_list.append({"test": test_name, "spec": test_spec, "result": str(test_res)})
-
-                    details_controls.append(dt)
-
-                    if observations:
-                        details_controls.append(ft.Text(f"Obs: {observations}", italic=True))
-
-                    # 4. Botón PDF
-                    def print_coa(e):
-                        pdf_name = f"CoA_{lot_int}.pdf"
-                        pdf_content = {
-                            "Producto": mat_name, 
-                            "Lote": lot_int, 
-                            "Fabricante": str(inv_data[1] or 'N/A'),
-                            "Conclusión": conclusion, 
-                            "Observaciones": observations or ""
-                        }
-                        success = open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
-                        if success:
-                            page.snack_bar = ft.SnackBar(ft.Text("Descargando PDF..."))
-                        else:
-                            page.snack_bar = ft.SnackBar(ft.Text("Error generando PDF"))
-                        page.snack_bar.open = True
-                        page.update()
-
-                    details_controls.append(ft.Container(height=10))
-                    details_controls.append(
-                        ft.ElevatedButton("Descargar Certificado", icon=ft.Icons.PICTURE_AS_PDF, 
-                                          bgcolor=ft.Colors.GREEN, color=ft.Colors.WHITE, 
-                                          on_click=print_coa)
-                    )
-
-                else:
-                    details_controls.append(ft.Container(
-                        content=ft.Text("⚠️ Sin análisis de laboratorio registrado.", color=ft.Colors.ORANGE),
-                        padding=10, border=ft.border.all(1, "orange"), border_radius=5
-                    ))
-
-                # --- ABRIR DIALOGO ---
-                dlg = ft.AlertDialog(
-                    title=ft.Text("Expediente de Lote"),
-                    content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=450),
-                    actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
-                )
-                page.dialog = dlg
-                dlg.open = True
-                page.update()
-
-            except Exception as ex:
-                logger.error(f"Error abriendo detalle: {ex}")
-                page.snack_bar = ft.SnackBar(ft.Text(f"Error al abrir detalle: {ex}"), bgcolor=ft.Colors.RED)
-                page.snack_bar.open = True
-                page.update()
-
-        # --- FUNCIÓN DE BÚSQUEDA ---
-        def search_lots(e):
-            term = f"%{tf_search.value}%"
-            # Query ajustado para traer lo necesario
-            query = """
-                SELECT i.id, m.code, m.name, i.lot_internal, i.status, i.expiry_date, i.quantity 
-                FROM inventory i 
-                JOIN materials m ON i.material_id = m.id 
-                WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s OR m.code ILIKE %s
-                ORDER BY i.id DESC
-            """
-            rows = db.execute_query(query, (term, term, term), fetch=True) or []
-            
-            col_res.controls.clear()
-            
-            if not rows:
-                col_res.controls.append(ft.Text("No se encontraron resultados."))
-            
-            for row in rows:
-                # row: [0:id, 1:code, 2:name, 3:lot, 4:status, 5:exp, 6:qty]
-                status_color = ft.Colors.GREEN if row[4] == "LIBERADO" else (ft.Colors.RED if row[4] == "RECHAZADO" else ft.Colors.ORANGE)
+                results_col.controls.clear()
                 
-                col_res.controls.append(
-                    ft.Card(
-                        content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.CIRCLE, color=status_color),
-                            title=ft.Text(f"{row[2]} ({row[1]})"),
-                            subtitle=ft.Text(f"Lote: {row[3]} | Est: {row[4]}"),
-                            trailing=ft.IconButton(
-                                ft.Icons.VISIBILITY, # Usamos Icons.VISIBILITY (el ojo)
-                                tooltip="Ver Detalles / CoA",
-                                # PASAMOS TODO EL ROW A LA FUNCIÓN
-                                on_click=lambda e, x=row: show_detail_dialog(x)
+                if not items:
+                    results_col.controls.append(ft.Text("No se encontraron registros.", italic=True))
+                
+                for item in items:
+                    # item: [0:id, 1:code, 2:name, 3:lot, 4:status, 5:expiry, 6:qty]
+                    
+                    # Definir color según estado
+                    status_color = ft.colors.ORANGE
+                    if item[4] == "LIBERADO":
+                        status_color = ft.colors.GREEN
+                    elif item[4] == "RECHAZADO":
+                        status_color = ft.colors.RED
+                    
+                    # Tarjeta de resultado
+                    results_col.controls.append(
+                        ft.Card(
+                            content=ft.ListTile(
+                                leading=ft.Icon(ft.icons.CIRCLE, color=status_color),
+                                title=ft.Text(f"{item[2]} ({item[1]})"),
+                                subtitle=ft.Text(f"Lote: {item[3]} | Est: {item[4]}"),
+                                trailing=ft.IconButton(
+                                    ft.icons.VISIBILITY, 
+                                    tooltip="Ver Detalles / CoA",
+                                    on_click=lambda e, iid=item[0], name=item[2], lot=item[3]: show_full_details(page, iid, name, lot)
+                                )
                             )
                         )
                     )
+                page.update()
+
+            except Exception as ex:
+                # Manejo de error para evitar pantalla blanca silenciosa
+                logger.error(f"Error en búsqueda: {ex}")
+                results_col.controls.append(ft.Text(f"Error al buscar: {ex}", color="red"))
+                page.update()
+
+        # 4. Función de Detalles (CORREGIDA: JSONB y PDF)
+        def show_full_details(page, inv_id, mat_name, lot):
+            # Obtener Datos Generales
+            inv_data = db.execute_query(
+                "SELECT lot_vendor, manufacturer, quantity, expiry_date, status, material_id FROM inventory WHERE id=%s",
+                (inv_id,), fetch=True
+            )[0]
+            
+            # Obtener Resultados de Laboratorio
+            lab_data = db.execute_query(
+                "SELECT analyst, result_data, conclusion, date_analyzed, analysis_num, bib_reference, observations FROM lab_results WHERE inventory_id=%s",
+                (inv_id,), fetch=True
+            )
+            
+            details_controls = [
+                ft.Text(f"Producto: {mat_name}", size=20, weight="bold"),
+                ft.Text(f"Lote Interno: {lot}", size=16),
+                ft.Divider(),
+                ft.Text("Información de Almacén:", weight="bold"),
+                ft.Text(f"Lote Proveedor: {inv_data[0]}"),
+                ft.Text(f"Fabricante: {inv_data[1] or 'N/A'}"),
+                ft.Text(f"Cantidad: {inv_data[2]} kg"),
+                ft.Text(f"Caducidad: {inv_data[3]}"),
+                ft.Text(f"Estado Actual: {inv_data[4]}"),
+                ft.Divider(),
+            ]
+            
+            # Lógica de Laboratorio
+            if lab_data:
+                res = lab_data[0]
+                
+                # --- FIX CRITICO JSON ---
+                if isinstance(res[1], dict):
+                    results_json = res[1]
+                else:
+                    results_json = json.loads(res[1])
+                # ------------------------
+                
+                conclusion = res[2]
+                observations = res[6]
+                
+                details_controls.append(ft.Text(f"Resultados de Calidad ({res[3]}):", weight="bold"))
+                details_controls.append(ft.Text(f"Analista: {res[0]}"))
+                details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
+                details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
+                                              color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED,
+                                              weight="bold"))
+                
+                # Tabla de Resultados
+                mat_id = inv_data[5]
+                profile_specs = db.execute_query(
+                    "SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id = st.id WHERE mp.material_id=%s",
+                    (mat_id,), fetch=True
                 )
+                
+                dt = ft.DataTable(columns=[
+                    ft.DataColumn(ft.Text("Prueba")),
+                    ft.DataColumn(ft.Text("Especificación")),
+                    ft.DataColumn(ft.Text("Resultado")),
+                ], rows=[])
+                
+                pdf_data_list = []
+                
+                if profile_specs:
+                    for spec in profile_specs:
+                        test_name = spec[0]
+                        test_spec = spec[1]
+                        test_res = results_json.get(test_name, "N/A")
+                        
+                        dt.rows.append(ft.DataRow(cells=[
+                            ft.DataCell(ft.Text(test_name)),
+                            ft.DataCell(ft.Text(test_spec)),
+                            ft.DataCell(ft.Text(str(test_res))),
+                        ]))
+                        pdf_data_list.append({"test": test_name, "spec": test_spec, "result": test_res})
+                    
+                    details_controls.append(dt)
+                
+                if observations:
+                    details_controls.append(ft.Text(f"Obs: {observations}", italic=True))
+                
+                # Botón PDF
+                def print_coa(e):
+                    pdf_name = f"CoA_REPRINT_{lot}.pdf"
+                    pdf_content = {
+                        "Producto": mat_name, "Lote": lot, 
+                        "Fabricante": str(inv_data[1] or 'N/A'),
+                        "Conclusión": conclusion, "Observaciones": observations
+                    }
+                    success = open_pdf_in_browser(page, pdf_name, pdf_content, pdf_data_list)
+                    if success:
+                        page.snack_bar = ft.SnackBar(ft.Text(f"Certificado generado: {pdf_name}"))
+                    else:
+                        page.snack_bar = ft.SnackBar(ft.Text("Error PDF"))
+                    page.snack_bar.open = True
+                    page.update()
+
+                details_controls.append(ft.Container(height=20))
+                details_controls.append(ft.ElevatedButton("Descargar Certificado", icon=ft.icons.PICTURE_AS_PDF, on_click=print_coa, bgcolor="green", color="white"))
+
+            else:
+                details_controls.append(ft.Text("⚠️ Sin análisis de laboratorio.", color="orange"))
+
+            # Mostrar Dialogo
+            dlg = ft.AlertDialog(
+                title=ft.Text("Expediente de Lote"),
+                content=ft.Column(details_controls, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+            )
+            page.dialog = dlg
+            dlg.open = True
             page.update()
 
-        tf_search.on_submit = search_lots
-        
-        content_column.controls = [
-            ft.Text("Consulta General & Certificados", size=20, weight="bold"),
-            ft.Row([tf_search, ft.IconButton(ft.Icons.SEARCH, on_click=search_lots)]),
-            ft.Divider(),
-            ft.Container(content=col_res, expand=True) # Container expandible para los resultados
-        ]
-        page.update()
         # 5. MONTAJE DE LA VISTA
         search_tf.on_submit = perform_search
 
         # Primero ponemos los controles visuales
         content_column.controls = [
             ft.Text("Consulta General & Certificados", size=20, weight="bold"),
-            ft.Row([search_tf, ft.IconButton(ft.Icons.SEARCH, on_click=perform_search)]),
+            ft.Row([search_tf, ft.IconButton(ft.icons.SEARCH, on_click=perform_search)]),
             ft.Divider(),
             results_col
         ]
@@ -975,7 +941,7 @@ def main(page: ft.Page):
             content_column.controls = [
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon(ft.Icons.SECURITY, size=60, color=ft.Colors.RED),
+                        ft.Icon(ft.icons.SECURITY, size=60, color=ft.colors.RED),
                         ft.Text("ACCESO RESTRINGIDO", size=20, weight="bold"),
                         ft.Text("Solo Administradores pueden gestionar usuarios.")
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -1040,16 +1006,16 @@ def main(page: ft.Page):
                 u_id, u_name, u_role, u_locked = u
                 
                 # Estilo visual según estado
-                icon_code = ft.Icons.VERIFIED_USER
-                icon_color = ft.Colors.BLUE
+                icon_code = ft.icons.VERIFIED_USER
+                icon_color = ft.colors.BLUE
                 status_txt = "ACTIVO"
                 if u_locked:
-                    icon_code = ft.Icons.BLOCK
-                    icon_color = ft.Colors.GREY
+                    icon_code = ft.icons.BLOCK
+                    icon_color = ft.colors.GREY
                     status_txt = "BLOQUEADO"
                 elif u_role == "ADMIN":
-                    icon_code = ft.Icons.SECURITY
-                    icon_color = ft.Colors.RED
+                    icon_code = ft.icons.SECURITY
+                    icon_color = ft.colors.RED
                 
                 # Tarjeta de Usuario
                 card = ft.Card(
@@ -1058,7 +1024,7 @@ def main(page: ft.Page):
                         title=ft.Text(u_name, weight="bold"),
                         subtitle=ft.Text(f"Rol: {u_role} | Estado: {status_txt}"),
                         trailing=ft.IconButton(
-                            ft.Icons.EDIT,
+                            ft.icons.EDIT,
                             tooltip="Editar Permisos / Bloquear",
                             on_click=lambda e, uid=u_id, name=u_name, role=u_role, locked=u_locked: open_edit_user_func(page, uid, name, role, locked)
                         )
@@ -1121,7 +1087,7 @@ def main(page: ft.Page):
         content_column.controls = [
             ft.Row([
                 ft.Text("Gestión de Usuarios", size=20, weight="bold"),
-                ft.ElevatedButton("Nuevo Usuario", icon=ft.Icons.PERSON_ADD, 
+                ft.ElevatedButton("Nuevo Usuario", icon=ft.icons.PERSON_ADD, 
                                  on_click=lambda e: open_add_user(page, users_list, current_user, open_edit_user))
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(),
@@ -1142,7 +1108,7 @@ def main(page: ft.Page):
             page.update()
             return
 
-        tf_search = ft.TextField(label="Buscar Lote a Corregir", suffix_icon=ft.Icons.SEARCH, expand=True)
+        tf_search = ft.TextField(label="Buscar Lote a Corregir", suffix_icon=ft.icons.SEARCH, expand=True)
         col_res = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
 
         def search_for_edit(e):
@@ -1169,11 +1135,11 @@ def main(page: ft.Page):
                 col_res.controls.append(
                     ft.Card(
                         content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.EDIT_DOCUMENT, color="orange"),
+                            leading=ft.Icon(ft.icons.EDIT_DOCUMENT, color="orange"),
                             title=ft.Text(f"{d[1]}"),
                             subtitle=ft.Text(f"Lote: {d[2]} | Est: {d[7]}"),
                             trailing=ft.IconButton(
-                                ft.Icons.ARROW_FORWARD, 
+                                ft.icons.ARROW_FORWARD, 
                                 tooltip="Corregir Datos", 
                                 on_click=lambda e, x=d: open_correction_dialog(x)
                             )
@@ -1266,7 +1232,7 @@ def main(page: ft.Page):
                 label="MOTIVO DE LA CORRECCIÓN (Obligatorio)", 
                 multiline=True, 
                 border_color="red", 
-                prefix_icon=ft.Icons.WARNING_AMBER_ROUNDED,
+                prefix_icon=ft.icons.WARNING_AMBER_ROUNDED,
                 helper_text="Justifique el cambio para Auditoría."
             )
 
@@ -1395,7 +1361,7 @@ def main(page: ft.Page):
         
         content_column.controls = [
             ft.Text("Módulo de Correcciones (Data Integrity)", size=20, weight="bold"), 
-            ft.Row([tf_search, ft.IconButton(ft.Icons.SEARCH, on_click=search_for_edit)]),
+            ft.Row([tf_search, ft.IconButton(ft.icons.SEARCH, on_click=search_for_edit)]),
             col_res
         ]
         page.update()
@@ -1404,8 +1370,8 @@ def main(page: ft.Page):
         if current_user["role"] != "ADMIN":
             content_column.controls = [
                 ft.Container(
-                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN", color=ft.Colors.WHITE, weight="bold"),
-                    bgcolor=ft.Colors.RED, padding=20, alignment=ft.alignment.center
+                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN", color=ft.colors.WHITE, weight="bold"),
+                    bgcolor=ft.colors.RED, padding=20, alignment=ft.alignment.center
                 )
             ]
             page.update()
@@ -1423,13 +1389,13 @@ def main(page: ft.Page):
                 # Diseño tipo tarjeta (Card) que no falla en móvil
                 card = ft.Container(
                     padding=10,
-                    border=ft.border.all(1, ft.Colors.GREY_300),
+                    border=ft.border.all(1, ft.colors.GREY_300),
                     border_radius=8,
-                    bgcolor=ft.Colors.WHITE,
+                    bgcolor=ft.colors.WHITE,
                     content=ft.Column([
                         ft.Row([
-                            ft.Text(str(l[0])[:19], size=12, weight="bold", color=ft.Colors.BLUE), # Fecha
-                            ft.Container(content=ft.Text(l[2], size=10, color=ft.Colors.WHITE), bgcolor=ft.Colors.BLACK, padding=5,
+                            ft.Text(str(l[0])[:19], size=12, weight="bold", color=ft.colors.BLUE), # Fecha
+                            ft.Container(content=ft.Text(l[2], size=10, color=ft.colors.WHITE), bgcolor=ft.colors.BLACK, padding=5,
                                          border_radius=4) # Acción
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         ft.Text(f"Usuario: {l[1]}", size=12, weight="bold"),
@@ -1443,7 +1409,7 @@ def main(page: ft.Page):
                 ft.Divider(),
                 ft.Container(content=ft.Column([
                     ft.Row([ft.Text("Registros (últimos 50)", weight="bold"), 
-                            ft.IconButton(ft.Icons.REFRESH, on_click=refresh_logs, tooltip="Actualizar")],
+                            ft.IconButton(ft.icons.REFRESH, on_click=refresh_logs, tooltip="Actualizar")],
                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     log_col
                 ], scroll=ft.ScrollMode.ALWAYS, expand=True, height=500))
@@ -1457,7 +1423,7 @@ def main(page: ft.Page):
     def build_login(page, content_column, nav_bar, current_user, configure_menu_for_role, current_modules, MODULES_MAP):
         user_tf = ft.TextField(label="Usuario")
         pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
-        error_txt = ft.Text(color=ft.Colors.RED, weight="bold")
+        error_txt = ft.Text(color=ft.colors.RED, weight="bold")
 
         def auth(e):
             # Indices: 0=id, 1=username, 2=password, 3=role, 4=is_locked
@@ -1503,7 +1469,7 @@ def main(page: ft.Page):
 
         page.add(ft.Container(
             content=ft.Column([
-                ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color=ft.Colors.BLUE),
+                ft.Icon(ft.icons.LOCAL_PHARMACY, size=60, color=ft.colors.BLUE),
                 ft.Text("MASTER MP", size=24, weight="bold"),
                 user_tf, pass_tf, error_txt,
                 ft.ElevatedButton("Entrar", on_click=auth)
