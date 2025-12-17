@@ -291,7 +291,7 @@ def main(page: ft.Page):
                 list_col.controls.append(ft.ListTile(
                     title=ft.Text(t[1]),
                     subtitle=ft.Text(f"Spec: {t[2]}"),
-                    trailing=ft.IconButton(ft.Icons.DELETE, icon_color=ft.colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
+                    trailing=ft.IconButton(ft.Icons.DELETE, icon_color=ft.Colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
                 ))
             page.update()
         
@@ -396,7 +396,7 @@ def main(page: ft.Page):
                 for m in materials:
                     tab_content.controls.append(
                         ft.Card(content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.CIRCLE, color=ft.colors.GREEN if m[3] else ft.colors.RED),
+                            leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if m[3] else ft.Colors.RED),
                             title=ft.Text(f"{m[1]} - {m[2]}"),
                             trailing=ft.IconButton(ft.Icons.SETTINGS, tooltip="Configurar Perfil", 
                                                    on_click=lambda e, mid=m[0], name=m[2]: open_profile_dialog(page, mid, name))
@@ -521,7 +521,7 @@ def main(page: ft.Page):
             ft.ElevatedButton(
                 "Ingresar al Almacén",
                 icon=ft.Icons.SAVE_ALT,
-                style=ft.ButtonStyle(bgcolor=ft.colors.BLUE, color=ft.colors.WHITE),
+                style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE, color=ft.Colors.WHITE),
                 on_click=receive_material,
                 width=float('inf')
             )
@@ -543,11 +543,11 @@ def main(page: ft.Page):
             # Campos de entrada
             tf_n = ft.TextField(label="N° de Cuñetes/Envases (N)", keyboard_type=ft.KeyboardType.NUMBER, autofocus=True)
             # Corregido: caracteres especiales rotos
-            txt_formula = ft.Text("Envases a abrir (√N + 1): 0", size=16, weight="bold", color=ft.colors.BLUE)
+            txt_formula = ft.Text("Envases a abrir (√N + 1): 0", size=16, weight="bold", color=ft.Colors.BLUE)
             tf_removed = ft.TextField(label="Cantidad Muestreada (kg)", keyboard_type=ft.KeyboardType.NUMBER, value="0.0")
             
             # Texto informativo de stock actual
-            txt_stock = ft.Text(f"Stock actual: {current_qty} kg", size=12, color=ft.colors.GREY)
+            txt_stock = ft.Text(f"Stock actual: {current_qty} kg", size=12, color=ft.Colors.GREY)
 
             # Función reactiva: Calcula la fórmula apenas el usuario escribe N
             def calculate_formula(e):
@@ -637,7 +637,7 @@ def main(page: ft.Page):
             lv.controls.append(
                 ft.Card(
                     content=ft.ListTile(
-                        leading=ft.Icon(ft.Icons.SCIENCE, color=ft.colors.ORANGE),
+                        leading=ft.Icon(ft.Icons.SCIENCE, color=ft.Colors.ORANGE),
                         title=ft.Text(f"{i[1]}"),
                         subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]} kg"),
                         trailing=ft.IconButton(
@@ -777,11 +777,11 @@ def main(page: ft.Page):
                     # item: [0:id, 1:code, 2:name, 3:lot, 4:status, 5:expiry, 6:qty]
                     
                     # Definir color según estado
-                    status_color = ft.colors.ORANGE
+                    status_color = ft.Colors.ORANGE
                     if item[4] == "LIBERADO":
-                        status_color = ft.colors.GREEN
+                        status_color = ft.Colors.GREEN
                     elif item[4] == "RECHAZADO":
-                        status_color = ft.colors.RED
+                        status_color = ft.Colors.RED
                     
                     # Tarjeta de resultado
                     results_col.controls.append(
@@ -851,7 +851,7 @@ def main(page: ft.Page):
                 details_controls.append(ft.Text(f"Analista: {res[0]}"))
                 details_controls.append(ft.Text(f"No. Análisis: {res[4]}"))
                 details_controls.append(ft.Text(f"Conclusión: {conclusion}", 
-                                              color=ft.colors.GREEN if conclusion == "APROBADO" else ft.colors.RED,
+                                              color=ft.Colors.GREEN if conclusion == "APROBADO" else ft.Colors.RED,
                                               weight="bold"))
                 
                 # Tabla de Resultados
@@ -941,7 +941,7 @@ def main(page: ft.Page):
             content_column.controls = [
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon(ft.Icons.SECURITY, size=60, color=ft.colors.RED),
+                        ft.Icon(ft.Icons.SECURITY, size=60, color=ft.Colors.RED),
                         ft.Text("ACCESO RESTRINGIDO", size=20, weight="bold"),
                         ft.Text("Solo Administradores pueden gestionar usuarios.")
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -1007,15 +1007,15 @@ def main(page: ft.Page):
                 
                 # Estilo visual según estado
                 icon_code = ft.Icons.VERIFIED_USER
-                icon_color = ft.colors.BLUE
+                icon_color = ft.Colors.BLUE
                 status_txt = "ACTIVO"
                 if u_locked:
                     icon_code = ft.Icons.BLOCK
-                    icon_color = ft.colors.GREY
+                    icon_color = ft.Colors.GREY
                     status_txt = "BLOQUEADO"
                 elif u_role == "ADMIN":
                     icon_code = ft.Icons.SECURITY
-                    icon_color = ft.colors.RED
+                    icon_color = ft.Colors.RED
                 
                 # Tarjeta de Usuario
                 card = ft.Card(
@@ -1370,8 +1370,8 @@ def main(page: ft.Page):
         if current_user["role"] != "ADMIN":
             content_column.controls = [
                 ft.Container(
-                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN", color=ft.colors.WHITE, weight="bold"),
-                    bgcolor=ft.colors.RED, padding=20, alignment=ft.alignment.center
+                    content=ft.Text("ACCESO DENEGADO - SOLO ADMIN", color=ft.Colors.WHITE, weight="bold"),
+                    bgcolor=ft.Colors.RED, padding=20, alignment=ft.alignment.center
                 )
             ]
             page.update()
@@ -1389,13 +1389,13 @@ def main(page: ft.Page):
                 # Diseño tipo tarjeta (Card) que no falla en móvil
                 card = ft.Container(
                     padding=10,
-                    border=ft.border.all(1, ft.colors.GREY_300),
+                    border=ft.border.all(1, ft.Colors.GREY_300),
                     border_radius=8,
-                    bgcolor=ft.colors.WHITE,
+                    bgcolor=ft.Colors.WHITE,
                     content=ft.Column([
                         ft.Row([
-                            ft.Text(str(l[0])[:19], size=12, weight="bold", color=ft.colors.BLUE), # Fecha
-                            ft.Container(content=ft.Text(l[2], size=10, color=ft.colors.WHITE), bgcolor=ft.colors.BLACK, padding=5,
+                            ft.Text(str(l[0])[:19], size=12, weight="bold", color=ft.Colors.BLUE), # Fecha
+                            ft.Container(content=ft.Text(l[2], size=10, color=ft.Colors.WHITE), bgcolor=ft.Colors.BLACK, padding=5,
                                          border_radius=4) # Acción
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         ft.Text(f"Usuario: {l[1]}", size=12, weight="bold"),
@@ -1423,7 +1423,7 @@ def main(page: ft.Page):
     def build_login(page, content_column, nav_bar, current_user, configure_menu_for_role, current_modules, MODULES_MAP):
         user_tf = ft.TextField(label="Usuario")
         pass_tf = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
-        error_txt = ft.Text(color=ft.colors.RED, weight="bold")
+        error_txt = ft.Text(color=ft.Colors.RED, weight="bold")
 
         def auth(e):
             # Indices: 0=id, 1=username, 2=password, 3=role, 4=is_locked
@@ -1469,7 +1469,7 @@ def main(page: ft.Page):
 
         page.add(ft.Container(
             content=ft.Column([
-                ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color=ft.colors.BLUE),
+                ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color=ft.Colors.BLUE),
                 ft.Text("MASTER MP", size=24, weight="bold"),
                 user_tf, pass_tf, error_txt,
                 ft.ElevatedButton("Entrar", on_click=auth)
