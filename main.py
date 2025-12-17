@@ -224,14 +224,14 @@ def main(page: ft.Page):
     
 # Mapa de todos los módulos disponibles
     MODULES_MAP = {
-        "CATALOGO":   {"icon": ft.icons.BOOK,          "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
-        "ALMACEN":    {"icon": ft.icons.INVENTORY,     "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
-        "MUESTREO":   {"icon": ft.icons.SCIENCE,       "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
-        "LAB":        {"icon": ft.icons.ASSIGNMENT,    "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
-        "CONSULTA":   {"icon": ft.icons.SEARCH,        "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
-        "CORRECCION": {"icon": ft.icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
-        "USUARIOS":   {"icon": ft.icons.PEOPLE,        "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
-        "ADMIN":      {"icon": ft.icons.SECURITY,      "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)}
+        "CATALOGO":   {"icon": ft.Icons.BOOK,          "label": "Catálogo", "func": lambda: build_catalog_view(page, content_column, current_user)},
+        "ALMACEN":    {"icon": ft.Icons.INVENTORY,     "label": "Almacén",  "func": lambda: build_inventory_view(page, content_column, current_user)},
+        "MUESTREO":   {"icon": ft.Icons.SCIENCE,       "label": "Muestreo", "func": lambda: build_sampling_view(page, content_column, current_user)},
+        "LAB":        {"icon": ft.Icons.ASSIGNMENT,    "label": "Lab",      "func": lambda: build_lab_view(page, content_column, current_user)},
+        "CONSULTA":   {"icon": ft.Icons.SEARCH,        "label": "Consulta", "func": lambda: build_query_view(page, content_column, current_user)},
+        "CORRECCION": {"icon": ft.Icons.EDIT_DOCUMENT, "label": "Corregir", "func": lambda: build_correction_view(page, content_column, current_user)},
+        "USUARIOS":   {"icon": ft.Icons.PEOPLE,        "label": "Usuarios", "func": lambda: build_users_view(page, content_column, current_user)},
+        "ADMIN":      {"icon": ft.Icons.SECURITY,      "label": "Admin",    "func": lambda: build_audit_view(page, content_column, current_user)}
     }    
 # Permisos por Rol
     ROLE_PERMISSIONS = {
@@ -291,7 +291,7 @@ def main(page: ft.Page):
                 list_col.controls.append(ft.ListTile(
                     title=ft.Text(t[1]),
                     subtitle=ft.Text(f"Spec: {t[2]}"),
-                    trailing=ft.IconButton(ft.icons.DELETE, icon_color=ft.colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
+                    trailing=ft.IconButton(ft.Icons.DELETE, icon_color=ft.colors.RED, on_click=lambda e, pid=t[0]: delete_profile_item(pid))
                 ))
             page.update()
         
@@ -396,14 +396,14 @@ def main(page: ft.Page):
                 for m in materials:
                     tab_content.controls.append(
                         ft.Card(content=ft.ListTile(
-                            leading=ft.Icon(ft.icons.CIRCLE, color=ft.colors.GREEN if m[3] else ft.colors.RED),
+                            leading=ft.Icon(ft.Icons.CIRCLE, color=ft.colors.GREEN if m[3] else ft.colors.RED),
                             title=ft.Text(f"{m[1]} - {m[2]}"),
-                            trailing=ft.IconButton(ft.icons.SETTINGS, tooltip="Configurar Perfil", 
+                            trailing=ft.IconButton(ft.Icons.SETTINGS, tooltip="Configurar Perfil", 
                                                    on_click=lambda e, mid=m[0], name=m[2]: open_profile_dialog(page, mid, name))
                         ))
                     )
                 # Botón para agregar materia
-                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Materia Prima", icon=ft.icons.ADD,
+                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Materia Prima", icon=ft.Icons.ADD,
                                                                  on_click=lambda e: add_material_dialog(page, content_column, current_user)))
             
             elif index == 1: # PRUEBAS MASTER
@@ -412,9 +412,9 @@ def main(page: ft.Page):
                 for t in tests:
                     tab_content.controls.append(
                         ft.ListTile(title=ft.Text(t[1]), subtitle=ft.Text(f"Método: {t[2]}"),
-                                     leading=ft.Icon(ft.icons.CHECK_BOX))
+                                     leading=ft.Icon(ft.Icons.CHECK_BOX))
                     )
-                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Prueba Estándar", icon=ft.icons.ADD,
+                tab_content.controls.insert(0, ft.ElevatedButton("Nueva Prueba Estándar", icon=ft.Icons.ADD,
                                                                  on_click=lambda e: add_test_dialog(page, content_column, current_user)))
             page.update()
 
@@ -422,8 +422,8 @@ def main(page: ft.Page):
             selected_index=0,
             animation_duration=300,
             tabs=[
-                ft.Tab(text="Materias Primas", icon=ft.icons.LAYERS),
-                ft.Tab(text="Pruebas Master", icon=ft.icons.LIST_ALT),
+                ft.Tab(text="Materias Primas", icon=ft.Icons.LAYERS),
+                ft.Tab(text="Pruebas Master", icon=ft.Icons.LIST_ALT),
             ],
             on_change=lambda e: render_catalog_content(e.control.selected_index)
         )
@@ -520,7 +520,7 @@ def main(page: ft.Page):
             ft.Container(height=20),
             ft.ElevatedButton(
                 "Ingresar al Almacén",
-                icon=ft.icons.SAVE_ALT,
+                icon=ft.Icons.SAVE_ALT,
                 style=ft.ButtonStyle(bgcolor=ft.colors.BLUE, color=ft.colors.WHITE),
                 on_click=receive_material,
                 width=float('inf')
@@ -637,11 +637,11 @@ def main(page: ft.Page):
             lv.controls.append(
                 ft.Card(
                     content=ft.ListTile(
-                        leading=ft.Icon(ft.icons.SCIENCE, color=ft.colors.ORANGE),
+                        leading=ft.Icon(ft.Icons.SCIENCE, color=ft.colors.ORANGE),
                         title=ft.Text(f"{i[1]}"),
                         subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]} kg"),
                         trailing=ft.IconButton(
-                            ft.icons.ARROW_FORWARD_IOS,
+                            ft.Icons.ARROW_FORWARD_IOS,
                             tooltip="Realizar Muestreo",
                             on_click=lambda e, iid=i[0], n=i[1], l=i[2], q=i[3]: open_sampling_dialog(iid, n, l, q)
                         )
@@ -735,7 +735,7 @@ def main(page: ft.Page):
         for p in pending:
             # Corregido: trailing roto
             lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(p[1]), subtitle=ft.Text(p[2]),
-                                                         trailing=ft.IconButton(ft.icons.PLAY_ARROW, 
+                                                         trailing=ft.IconButton(ft.Icons.PLAY_ARROW, 
                                                                                on_click=lambda e, x=p: open_analysis(x[0], x[3], x[1], x[2])))))
         
         content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
@@ -745,7 +745,7 @@ def main(page: ft.Page):
         # 1. UI: Barra de Búsqueda
         search_tf = ft.TextField(
             label="Buscar por Lote, Código o Nombre", 
-            suffix_icon=ft.icons.SEARCH, 
+            suffix_icon=ft.Icons.SEARCH, 
             expand=True
         )
         
@@ -787,11 +787,11 @@ def main(page: ft.Page):
                     results_col.controls.append(
                         ft.Card(
                             content=ft.ListTile(
-                                leading=ft.Icon(ft.icons.CIRCLE, color=status_color),
+                                leading=ft.Icon(ft.Icons.CIRCLE, color=status_color),
                                 title=ft.Text(f"{item[2]} ({item[1]})"),
                                 subtitle=ft.Text(f"Lote: {item[3]} | Est: {item[4]}"),
                                 trailing=ft.IconButton(
-                                    ft.icons.VISIBILITY, 
+                                    ft.Icons.VISIBILITY, 
                                     tooltip="Ver Detalles / CoA",
                                     on_click=lambda e, iid=item[0], name=item[2], lot=item[3]: show_full_details(page, iid, name, lot)
                                 )
@@ -904,7 +904,7 @@ def main(page: ft.Page):
                     page.update()
 
                 details_controls.append(ft.Container(height=20))
-                details_controls.append(ft.ElevatedButton("Descargar Certificado", icon=ft.icons.PICTURE_AS_PDF, on_click=print_coa, bgcolor="green", color="white"))
+                details_controls.append(ft.ElevatedButton("Descargar Certificado", icon=ft.Icons.PICTURE_AS_PDF, on_click=print_coa, bgcolor="green", color="white"))
 
             else:
                 details_controls.append(ft.Text("⚠️ Sin análisis de laboratorio.", color="orange"))
@@ -925,7 +925,7 @@ def main(page: ft.Page):
         # Primero ponemos los controles visuales
         content_column.controls = [
             ft.Text("Consulta General & Certificados", size=20, weight="bold"),
-            ft.Row([search_tf, ft.IconButton(ft.icons.SEARCH, on_click=perform_search)]),
+            ft.Row([search_tf, ft.IconButton(ft.Icons.SEARCH, on_click=perform_search)]),
             ft.Divider(),
             results_col
         ]
@@ -941,7 +941,7 @@ def main(page: ft.Page):
             content_column.controls = [
                 ft.Container(
                     content=ft.Column([
-                        ft.Icon(ft.icons.SECURITY, size=60, color=ft.colors.RED),
+                        ft.Icon(ft.Icons.SECURITY, size=60, color=ft.colors.RED),
                         ft.Text("ACCESO RESTRINGIDO", size=20, weight="bold"),
                         ft.Text("Solo Administradores pueden gestionar usuarios.")
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -1006,15 +1006,15 @@ def main(page: ft.Page):
                 u_id, u_name, u_role, u_locked = u
                 
                 # Estilo visual según estado
-                icon_code = ft.icons.VERIFIED_USER
+                icon_code = ft.Icons.VERIFIED_USER
                 icon_color = ft.colors.BLUE
                 status_txt = "ACTIVO"
                 if u_locked:
-                    icon_code = ft.icons.BLOCK
+                    icon_code = ft.Icons.BLOCK
                     icon_color = ft.colors.GREY
                     status_txt = "BLOQUEADO"
                 elif u_role == "ADMIN":
-                    icon_code = ft.icons.SECURITY
+                    icon_code = ft.Icons.SECURITY
                     icon_color = ft.colors.RED
                 
                 # Tarjeta de Usuario
@@ -1024,7 +1024,7 @@ def main(page: ft.Page):
                         title=ft.Text(u_name, weight="bold"),
                         subtitle=ft.Text(f"Rol: {u_role} | Estado: {status_txt}"),
                         trailing=ft.IconButton(
-                            ft.icons.EDIT,
+                            ft.Icons.EDIT,
                             tooltip="Editar Permisos / Bloquear",
                             on_click=lambda e, uid=u_id, name=u_name, role=u_role, locked=u_locked: open_edit_user_func(page, uid, name, role, locked)
                         )
@@ -1087,7 +1087,7 @@ def main(page: ft.Page):
         content_column.controls = [
             ft.Row([
                 ft.Text("Gestión de Usuarios", size=20, weight="bold"),
-                ft.ElevatedButton("Nuevo Usuario", icon=ft.icons.PERSON_ADD, 
+                ft.ElevatedButton("Nuevo Usuario", icon=ft.Icons.PERSON_ADD, 
                                  on_click=lambda e: open_add_user(page, users_list, current_user, open_edit_user))
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(),
@@ -1108,7 +1108,7 @@ def main(page: ft.Page):
             page.update()
             return
 
-        tf_search = ft.TextField(label="Buscar Lote a Corregir", suffix_icon=ft.icons.SEARCH, expand=True)
+        tf_search = ft.TextField(label="Buscar Lote a Corregir", suffix_icon=ft.Icons.SEARCH, expand=True)
         col_res = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
 
         def search_for_edit(e):
@@ -1135,11 +1135,11 @@ def main(page: ft.Page):
                 col_res.controls.append(
                     ft.Card(
                         content=ft.ListTile(
-                            leading=ft.Icon(ft.icons.EDIT_DOCUMENT, color="orange"),
+                            leading=ft.Icon(ft.Icons.EDIT_DOCUMENT, color="orange"),
                             title=ft.Text(f"{d[1]}"),
                             subtitle=ft.Text(f"Lote: {d[2]} | Est: {d[7]}"),
                             trailing=ft.IconButton(
-                                ft.icons.ARROW_FORWARD, 
+                                ft.Icons.ARROW_FORWARD, 
                                 tooltip="Corregir Datos", 
                                 on_click=lambda e, x=d: open_correction_dialog(x)
                             )
@@ -1232,7 +1232,7 @@ def main(page: ft.Page):
                 label="MOTIVO DE LA CORRECCIÓN (Obligatorio)", 
                 multiline=True, 
                 border_color="red", 
-                prefix_icon=ft.icons.WARNING_AMBER_ROUNDED,
+                prefix_icon=ft.Icons.WARNING_AMBER_ROUNDED,
                 helper_text="Justifique el cambio para Auditoría."
             )
 
@@ -1361,7 +1361,7 @@ def main(page: ft.Page):
         
         content_column.controls = [
             ft.Text("Módulo de Correcciones (Data Integrity)", size=20, weight="bold"), 
-            ft.Row([tf_search, ft.IconButton(ft.icons.SEARCH, on_click=search_for_edit)]),
+            ft.Row([tf_search, ft.IconButton(ft.Icons.SEARCH, on_click=search_for_edit)]),
             col_res
         ]
         page.update()
@@ -1409,7 +1409,7 @@ def main(page: ft.Page):
                 ft.Divider(),
                 ft.Container(content=ft.Column([
                     ft.Row([ft.Text("Registros (últimos 50)", weight="bold"), 
-                            ft.IconButton(ft.icons.REFRESH, on_click=refresh_logs, tooltip="Actualizar")],
+                            ft.IconButton(ft.Icons.REFRESH, on_click=refresh_logs, tooltip="Actualizar")],
                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     log_col
                 ], scroll=ft.ScrollMode.ALWAYS, expand=True, height=500))
@@ -1469,7 +1469,7 @@ def main(page: ft.Page):
 
         page.add(ft.Container(
             content=ft.Column([
-                ft.Icon(ft.icons.LOCAL_PHARMACY, size=60, color=ft.colors.BLUE),
+                ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color=ft.colors.BLUE),
                 ft.Text("MASTER MP", size=24, weight="bold"),
                 user_tf, pass_tf, error_txt,
                 ft.ElevatedButton("Entrar", on_click=auth)
