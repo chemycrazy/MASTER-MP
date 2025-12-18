@@ -1051,52 +1051,30 @@ def main(page: ft.Page):
     col = ft.Column(expand=True)
     nav = ft.NavigationBar(visible=False)
 
-    # Definimos los campos de texto AQUÍ para que existan en todo el ámbito de main
-    user_tf = ft.TextField(label="User")
-    pass_tf = ft.TextField(label="Pass", password=True)
-
-    # --- ENCAPSULAMOS TU DISEÑO EXACTO PARA PODER LLAMARLO AL SALIR ---
-    def render_login():
-        page.clean()
-        page.navigation_bar.visible = False
-        page.appbar = None
-        
-        # --- TUS LÍNEAS DE CÓDIGO EXACTAS (Diseño Login) ---
-        page.add(ft.Column([ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60,
-        color="blue"), ft.Text("LOGIN"), user_tf, pass_tf,
-        ft.ElevatedButton("Entrar", on_click=login)], alignment=ft.MainAxisAlignment.CENTER,
-        expand=True))
-        # ---------------------------------------------------
-        
-        page.update()
-
-    # --- LÓGICA DE SALIR ---
-    def logout(e):
-        # 1. Resetear usuario
-        current_user.update({"id": None, "name": "GUEST", "role": "GUEST"})
-        # 2. Volver a pintar tu pantalla de login
-        render_login()
-
-    # --- LÓGICA DE ENTRAR ---
     def login(e):
-        # Usamos los valores de tus textfields
+        # 1. Validar usuario y contraseña
         res = db.execute_query("SELECT id, username, role FROM users WHERE username=%s AND password=%s", (user_tf.value, pass_tf.value), fetch=True)
         
         if res:
             role_name = res[0][2]
             current_user.update({"id": res[0][0], "name": res[0][1], "role": role_name})
             
-            # Obtener permisos
+            # 2. Obtener permisos dinámicos desde la tabla ROLES
             role_data = db.execute_query("SELECT permissions FROM roles WHERE name=%s", (role_name,), fetch=True)
+            
             allowed_modules = []
             if role_data:
+                # Parsear el JSON de permisos
                 raw_perms = role_data[0][0]
                 allowed_modules = raw_perms if isinstance(raw_perms, list) else json.loads(raw_perms)
             else:
+                # Fallback por si el rol no existe en la tabla roles (ej: usuarios viejos)
+                # Damos acceso básico si falla
                 allowed_modules = ["ALMACEN"] 
 
-            # Configurar Navegación
+            # 3. Construir Menú
             nav.destinations = [ft.NavigationBarDestination(icon=MODULES[k]["icon"], label=MODULES[k]["label"]) for k in allowed_modules if k in MODULES]
+            
             active_mods = [k for k in allowed_modules if k in MODULES]
             
             def nav_click(e):
@@ -1107,22 +1085,7 @@ def main(page: ft.Page):
             
             nav.on_change = nav_click
             nav.visible = True
-            
-            # --- AQUÍ AÑADIMOS LA BARRA SUPERIOR CON EL BOTÓN SALIR ---
-            page.appbar = ft.AppBar(
-                leading=ft.Icon(ft.Icons.PHARMACY),
-                title=ft.Text(f"Hola, {current_user['name']}"),
-                bgcolor=ft.Colors.BLUE,
-                color=ft.Colors.WHITE,
-                actions=[
-                    ft.IconButton(ft.Icons.LOGOUT, tooltip="Cerrar Sesión", on_click=logout, icon_color=ft.Colors.WHITE)
-                ]
-            )
-
-            # Limpiar login y cargar dashboard
-            page.clean()
-            page.add(col)
-            page.navigation_bar = nav
+            page.clean(); page.add(col); page.navigation_bar = nav
             
             if active_mods: 
                 MODULES[active_mods[0]]["func"](page, col, current_user)
@@ -1133,8 +1096,8 @@ def main(page: ft.Page):
         else:
             page.snack_bar = ft.SnackBar(ft.Text("Error Login")); page.snack_bar.open=True; page.update()
 
-    # Arrancar mostrando tu diseño
-    render_login()
+    user_tf, pass_tf = ft.TextField(label="User"), ft.TextField(label="Pass", password=True)
+    page.add(ft.Column([ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color="blue"), ft.Text("LOGIN"), user_tf, pass_tf, ft.ElevatedButton("Entrar", on_click=login)], alignment=ft.MainAxisAlignment.CENTER, expand=True))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
