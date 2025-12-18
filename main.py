@@ -11,7 +11,6 @@ from fpdf import FPDF
 import sys
 
 # --- CONFIGURACIÓN ---
-# Aumentar limite de recursividad para interfaces complejas
 sys.setrecursionlimit(2000)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -58,11 +57,16 @@ class DBManager:
 
     def init_db(self):
         commands = [
+            """CREATE TABLE IF NOT EXISTS roles (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(50) UNIQUE NOT NULL,
+                permissions JSONB DEFAULT '[]'
+            )""",
             """CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password VARCHAR(50) NOT NULL,
-                role VARCHAR(20) DEFAULT 'OPERADOR',
+                role VARCHAR(50) NOT NULL, 
                 is_locked BOOLEAN DEFAULT FALSE
             )""",
             """CREATE TABLE IF NOT EXISTS materials (
@@ -115,7 +119,16 @@ class DBManager:
             )"""
         ]
         
-        create_admin = """
+        # Insertar Rol ADMIN por defecto si no existe (con acceso a todo)
+        # Nota: La lista de módulos debe coincidir con las llaves de MODULES al final del script
+        all_modules = ["CATALOGO", "ALMACEN", "MUESTREO", "LAB", "CONSULTA", "CORRECCION", "USUARIOS", "PERFILES", "ADMIN"]
+        create_admin_role = """
+            INSERT INTO roles (name, permissions)
+            VALUES ('ADMIN', %s)
+            ON CONFLICT (name) DO NOTHING
+        """
+        
+        create_admin_user = """
             INSERT INTO users (username, password, role)
             VALUES ('admin', 'admin', 'ADMIN')
             ON CONFLICT (username) DO NOTHING
@@ -125,7 +138,8 @@ class DBManager:
             with conn.cursor() as cur:
                 for cmd in commands:
                     cur.execute(cmd)
-                cur.execute(create_admin)
+                cur.execute(create_admin_role, (json.dumps(all_modules),))
+                cur.execute(create_admin_user)
                 conn.commit()
 
 db = DBManager()
@@ -164,7 +178,6 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
 
         pdf.ln(5)
         
-        # Tabla
         pdf.set_fill_color(240, 240, 240)
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(60, 8, text=clean("Prueba"), border=1, fill=True)
@@ -184,7 +197,6 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
             pdf.set_font("Helvetica", size=10)
             pdf.multi_cell(0, 6, text=clean(content_dict["Observaciones"]))
 
-        # --- GENERACIÓN DE BYTES Y DESCARGA (COMPATIBLE) ---
         raw_output = pdf.output() 
         if isinstance(raw_output, str):
             pdf_bytes = raw_output.encode('latin-1')
@@ -380,36 +392,19 @@ def build_lab_view(page, content_column, current_user):
     content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
     page.update()
 
-# --- NUEVO MÓDULO: CORRECCIÓN ALCOA ---
 def build_edition_view(page, content_column, current_user):
-    # Verificación de Rol
-    if current_user["role"] not in ["ADMIN", "CALIDAD"]:
-        content_column.controls = [ft.Text("Acceso Restringido: Requiere rol ADMIN o CALIDAD", color="red", size=20, weight="bold")]
-        page.update()
-        return
-
+    # Verificación de Permisos (ya filtrado por menú, pero doble check)
     tf_search = ft.TextField(label="Buscar Lote para Corregir", suffix_icon=ft.Icons.SEARCH)
     results_col = ft.Column()
 
     def edit_record(item):
-        # item: [id, material_name, lot_internal, lot_vendor, quantity, expiry_date]
         iid = item[0]
-        
-        # Campos de edición (Almacén y Datos Críticos)
         tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(item[4]))
         tf_lot_v = ft.TextField(label="Lote Proveedor", value=str(item[3]))
         tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(item[5]))
-        
-        # CAMPO OBLIGATORIO ALCOA
-        tf_reason = ft.TextField(
-            label="Justificación del Cambio (Requerido para ALCOA)", 
-            multiline=True, 
-            icon=ft.Icons.WARNING,
-            helper_text="Explique detalladamente por qué se modifica el registro original."
-        )
+        tf_reason = ft.TextField(label="Justificación del Cambio (Requerido para ALCOA)", multiline=True, icon=ft.Icons.WARNING)
         
         def save_changes(e):
-            # Validación ALCOA: Sin justificación no hay cambio
             if not tf_reason.value or len(tf_reason.value) < 5:
                 page.snack_bar = ft.SnackBar(ft.Text("⚠️ ALCOA: Debe ingresar una justificación válida."))
                 page.snack_bar.open = True
@@ -417,7 +412,6 @@ def build_edition_view(page, content_column, current_user):
                 return
 
             try:
-                # Detectar cambios para el Audit Trail
                 changes = []
                 if float(tf_qty.value) != float(item[4]): changes.append(f"Qty: {item[4]} -> {tf_qty.value}")
                 if tf_lot_v.value != str(item[3]): changes.append(f"LotV: {item[3]} -> {tf_lot_v.value}")
@@ -426,20 +420,14 @@ def build_edition_view(page, content_column, current_user):
                 if not changes:
                     page.close(dlg); return
 
-                # Update Seguro
-                db.execute_query(
-                    "UPDATE inventory SET quantity=%s, lot_vendor=%s, expiry_date=%s WHERE id=%s",
-                    (float(tf_qty.value), tf_lot_v.value, tf_exp.value, iid)
-                )
-                
-                # Registro ALCOA en Audit Trail
+                db.execute_query("UPDATE inventory SET quantity=%s, lot_vendor=%s, expiry_date=%s WHERE id=%s", (float(tf_qty.value), tf_lot_v.value, tf_exp.value, iid))
                 log_details = f"CORRECCION DATOS | {'; '.join(changes)} | Justificación: {tf_reason.value}"
                 log_audit(current_user["name"], "EDIT_RECORD", log_details)
                 
                 page.snack_bar = ft.SnackBar(ft.Text("✅ Registro corregido y auditado."), bgcolor="green")
                 page.snack_bar.open = True
                 page.close(dlg)
-                search_lot(None) # Refrescar lista
+                search_lot(None)
                 page.update()
 
             except Exception as ex:
@@ -448,49 +436,20 @@ def build_edition_view(page, content_column, current_user):
                 page.snack_bar.open = True
                 page.update()
 
-        dlg = ft.AlertDialog(
-            title=ft.Text(f"Corregir Lote: {item[2]}"),
-            content=ft.Column([
-                ft.Text("Modifique solo los datos erróneos:", size=12),
-                tf_qty, tf_lot_v, tf_exp,
-                ft.Divider(),
-                tf_reason
-            ], tight=True),
-            actions=[
-                ft.ElevatedButton("Cancelar", on_click=lambda e: page.close(dlg)),
-                ft.ElevatedButton("Guardar Corrección", on_click=save_changes, bgcolor=ft.Colors.RED, color=ft.Colors.WHITE)
-            ]
-        )
+        dlg = ft.AlertDialog(title=ft.Text(f"Corregir Lote: {item[2]}"), content=ft.Column([ft.Text("Modifique solo los datos erróneos:", size=12), tf_qty, tf_lot_v, tf_exp, ft.Divider(), tf_reason], tight=True), actions=[ft.ElevatedButton("Cancelar", on_click=lambda e: page.close(dlg)), ft.ElevatedButton("Guardar Corrección", on_click=save_changes, bgcolor=ft.Colors.RED, color=ft.Colors.WHITE)])
         page.open(dlg)
 
     def search_lot(e):
         term = f"%{tf_search.value}%"
-        # Buscamos datos generales de inventario
-        rows = db.execute_query(
-            "SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.quantity, i.expiry_date FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.lot_internal ILIKE %s", 
-            (term,), fetch=True
-        ) or []
-        
+        rows = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.quantity, i.expiry_date FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.lot_internal ILIKE %s", (term,), fetch=True) or []
         results_col.controls.clear()
-        if not rows:
-            results_col.controls.append(ft.Text("No se encontró el lote."))
-        
+        if not rows: results_col.controls.append(ft.Text("No se encontró el lote."))
         for r in rows:
-            results_col.controls.append(ft.Card(content=ft.ListTile(
-                leading=ft.Icon(ft.Icons.EDIT, color="orange"),
-                title=ft.Text(f"{r[1]} ({r[2]})"),
-                subtitle=ft.Text(f"Qty: {r[4]} | Exp: {r[5]}"),
-                trailing=ft.ElevatedButton("Corregir", on_click=lambda e, x=r: edit_record(x))
-            )))
+            results_col.controls.append(ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.EDIT, color="orange"), title=ft.Text(f"{r[1]} ({r[2]})"), subtitle=ft.Text(f"Qty: {r[4]} | Exp: {r[5]}"), trailing=ft.ElevatedButton("Corregir", on_click=lambda e, x=r: edit_record(x)))))
         page.update()
 
     tf_search.on_submit = search_lot
-    content_column.controls = [
-        ft.Text("Corrección de Registros (ALCOA)", size=20, weight="bold", color="red"),
-        ft.Text("Todos los cambios son auditados. Ingrese motivo.", size=12, italic=True),
-        tf_search,
-        results_col
-    ]
+    content_column.controls = [ft.Text("Corrección de Registros (ALCOA)", size=20, weight="bold", color="red"), ft.Text("Todos los cambios son auditados. Ingrese motivo.", size=12, italic=True), tf_search, results_col]
     page.update()
 
 def build_query_view(page, content_column, current_user):
@@ -502,94 +461,141 @@ def build_query_view(page, content_column, current_user):
         try:
             inv_rows = db.execute_query("SELECT manufacturer, lot_vendor, expiry_date, quantity FROM inventory WHERE id=%s", (item_id,), fetch=True)
             inv = inv_rows[0] if inv_rows else ["N/A", "N/A", "N/A", 0]
-            
             lab = db.execute_query("SELECT analysis_num, conclusion, result_data, observations FROM lab_results WHERE inventory_id=%s", (item_id,), fetch=True)
             
-            info = [
-               ft.Text(f"Producto: {data[1]}", weight="bold", size=16),
-               ft.Text(f"Lote Interno: {data[2]}", color=ft.Colors.BLUE, weight="bold"),
-               ft.Divider(),
-               ft.Text(f"Fabricante: {inv[0]}"),
-               ft.Text(f"Lote Prov: {inv[1]}"),
-               ft.Text(f"Caducidad: {inv[2]}"),
-               ft.Text(f"Cantidad: {inv[3]} kg"),
-               ft.Divider()
-            ]
+            info = [ft.Text(f"Producto: {data[1]}", weight="bold", size=16), ft.Text(f"Lote Interno: {data[2]}", color=ft.Colors.BLUE, weight="bold"), ft.Divider(), ft.Text(f"Fabricante: {inv[0]}"), ft.Text(f"Lote Prov: {inv[1]}"), ft.Text(f"Caducidad: {inv[2]}"), ft.Text(f"Cantidad: {inv[3]} kg"), ft.Divider()]
 
             if lab:
                 l_res = lab[0]
                 info.append(ft.Text(f"Análisis: {l_res[0]}", weight="bold"))
                 info.append(ft.Text(f"Dictamen: {l_res[1]}", color=ft.Colors.GREEN if l_res[1]=="APROBADO" else ft.Colors.RED, weight="bold"))
-                
                 try:
                     res_json = l_res[2] if isinstance(l_res[2], dict) else json.loads(l_res[2])
                     dt = ft.DataTable(columns=[ft.DataColumn(ft.Text("Prueba")), ft.DataColumn(ft.Text("Resultado"))], rows=[])
-                    for k,v in res_json.items():
-                       dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
+                    for k,v in res_json.items(): dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
                     info.append(dt)
-                    
                     res_list = [{"test": k, "spec": "-", "result": str(v)} for k,v in res_json.items()]
-                except:
-                    res_list = []
+                except: res_list = []
 
                 if l_res[3]: info.append(ft.Text(f"Obs: {l_res[3]}", italic=True))
-
                 def print_pdf(e):
                     content = {"Producto": data[1], "Lote": data[2], "Conclusión": l_res[1], "Observaciones": l_res[3]}
                     if open_pdf_in_browser(page, f"Cert_{data[2]}.pdf", content, res_list):
-                        page.snack_bar = ft.SnackBar(ft.Text("Descargando PDF..."))
-                        page.snack_bar.open = True
-                        page.update()
-
+                        page.snack_bar = ft.SnackBar(ft.Text("Descargando PDF...")); page.snack_bar.open = True; page.update()
                 info.append(ft.ElevatedButton("Descargar Certificado", icon=ft.Icons.PICTURE_AS_PDF, bgcolor=ft.Colors.GREEN, color=ft.Colors.WHITE, on_click=print_pdf))
             else:
                 info.append(ft.Text("⚠️ Sin análisis de laboratorio", color=ft.Colors.ORANGE))
 
             dlg = ft.AlertDialog(title=ft.Text("Detalle"), content=ft.Column(info, tight=True, scroll=ft.ScrollMode.ALWAYS, height=450), actions=[ft.TextButton("Cerrar", on_click=lambda e: page.close(dlg))])
             page.open(dlg)
-
-        except Exception as ex:
-            logger.error(f"Error detalle: {ex}")
+        except Exception as ex: logger.error(f"Error detalle: {ex}")
 
     def search(e):
         t = f"%{tf_s.value}%"
         rows = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.status FROM inventory i JOIN materials m ON i.material_id=m.id WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s", (t, t), fetch=True) or []
-        
         col.controls.clear()
-        if not rows:
-           col.controls.append(ft.Text("No se encontraron resultados."))
-
+        if not rows: col.controls.append(ft.Text("No se encontraron resultados."))
         for r in rows:
-           col.controls.append(ft.Card(content=ft.ListTile(
-               title=ft.Text(r[1]), 
-               subtitle=ft.Text(f"{r[2]} - {r[3]}"), 
-               leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if r[3]=="LIBERADO" else ft.Colors.ORANGE),
-               trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=r: show_details(x))
-            )))
+           col.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(r[1]), subtitle=ft.Text(f"{r[2]} - {r[3]}"), leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if r[3]=="LIBERADO" else ft.Colors.ORANGE), trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=r: show_details(x)))))
         page.update()
     
     tf_s.on_submit = search
     content_column.controls = [ft.Text("Consulta", size=20, weight="bold"), tf_s, col]
     page.update()
 
-def build_users_view(page, content_column, current_user):
-    if current_user["role"] != "ADMIN": content_column.controls=[ft.Text("Acceso Denegado")]; page.update(); return
-    
-    lst = ft.Column()
-    def render():
-        rows = db.execute_query("SELECT username, role FROM users", fetch=True) or []
-        lst.controls = [ft.ListTile(title=ft.Text(r[0]), subtitle=ft.Text(r[1]), leading=ft.Icon(ft.Icons.PERSON)) for r in rows]
+# --- NUEVAS VISTAS DE GESTIÓN DE ROLES Y USUARIOS ---
+
+def build_roles_view(page, content_column, current_user):
+    # Gestión dinámica de roles
+    list_roles = ft.Column()
+
+    def render_roles():
+        rows = db.execute_query("SELECT id, name, permissions FROM roles ORDER BY name", fetch=True) or []
+        list_roles.controls.clear()
+        for r in rows:
+            # Parseamos el JSON de permisos
+            perms = r[2] if isinstance(r[2], list) else json.loads(r[2])
+            perm_str = ", ".join(perms)
+            list_roles.controls.append(ft.Card(content=ft.ListTile(
+                title=ft.Text(r[1], weight="bold"),
+                subtitle=ft.Text(f"Accesos: {perm_str}", size=12),
+                leading=ft.Icon(ft.Icons.SECURITY)
+            )))
         page.update()
-    
-    def add(e):
-        u, p, r = ft.TextField(label="User"), ft.TextField(label="Pass"), ft.Dropdown(options=[ft.dropdown.Option("OPERADOR"), ft.dropdown.Option("ADMIN"), ft.dropdown.Option("CALIDAD")])
-        def save(e):
-            db.execute_query("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (u.value, p.value, r.value)); page.close(dlg); render()
-        dlg = ft.AlertDialog(content=ft.Column([u,p,r], tight=True), actions=[ft.ElevatedButton("Crear", on_click=save)])
+
+    def open_add_role_dialog(e):
+        tf_name = ft.TextField(label="Nombre del Perfil (Ej: Auditor)")
+        # Crear checkboxes para cada módulo disponible
+        checks = {}
+        for mod_key in MODULES.keys():
+            # Excluir 'ADMIN' para que no se auto-asignen superpoderes fácilmente, o dejarlo si se requiere
+            checks[mod_key] = ft.Checkbox(label=MODULES[mod_key]["label"], value=False)
+        
+        def save_role(e):
+            if not tf_name.value: return
+            selected_perms = [k for k, cb in checks.items() if cb.value]
+            try:
+                db.execute_query("INSERT INTO roles (name, permissions) VALUES (%s, %s)", (tf_name.value, json.dumps(selected_perms)))
+                page.close(dlg)
+                render_roles()
+                page.snack_bar = ft.SnackBar(ft.Text("Perfil creado exitosamente")); page.snack_bar.open=True; page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error: {ex}")); page.snack_bar.open=True; page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Nuevo Perfil de Usuario"),
+            content=ft.Column([tf_name, ft.Text("Permisos:")] + list(checks.values()), tight=True, scroll=ft.ScrollMode.AUTO, height=400),
+            actions=[ft.ElevatedButton("Guardar", on_click=save_role)]
+        )
         page.open(dlg)
 
-    render()
-    content_column.controls = [ft.Text("Usuarios", size=20, weight="bold"), ft.ElevatedButton("Nuevo", on_click=add), lst]
+    render_roles()
+    content_column.controls = [
+        ft.Text("Perfiles y Permisos", size=20, weight="bold"),
+        ft.ElevatedButton("Crear Nuevo Perfil", icon=ft.Icons.ADD_MODERATOR, on_click=open_add_role_dialog),
+        list_roles
+    ]
+    page.update()
+
+def build_users_view(page, content_column, current_user):
+    # Gestión de usuarios vinculados a roles dinámicos
+    list_users = ft.Column()
+    
+    def render_users():
+        rows = db.execute_query("SELECT username, role FROM users", fetch=True) or []
+        list_users.controls = [ft.ListTile(title=ft.Text(r[0]), subtitle=ft.Text(f"Perfil: {r[1]}"), leading=ft.Icon(ft.Icons.PERSON)) for r in rows]
+        page.update()
+    
+    def open_add_user_dialog(e):
+        # Obtener lista de roles disponibles de la BD
+        roles_db = db.execute_query("SELECT name FROM roles", fetch=True) or []
+        role_options = [ft.dropdown.Option(r[0]) for r in roles_db]
+
+        u, p = ft.TextField(label="Usuario"), ft.TextField(label="Contraseña", password=True)
+        dd_role = ft.Dropdown(label="Seleccionar Perfil", options=role_options)
+
+        def save_user(e):
+            if u.value and p.value and dd_role.value:
+                db.execute_query("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (u.value, p.value, dd_role.value))
+                page.close(dlg)
+                render_users()
+                log_audit(current_user["name"], "CREATE_USER", f"Creado usuario {u.value} con rol {dd_role.value}")
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text("Todos los campos son obligatorios")); page.snack_bar.open=True; page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Nuevo Usuario"),
+            content=ft.Column([u, p, dd_role], tight=True),
+            actions=[ft.ElevatedButton("Crear Usuario", on_click=save_user)]
+        )
+        page.open(dlg)
+
+    render_users()
+    content_column.controls = [
+        ft.Text("Gestión de Usuarios", size=20, weight="bold"),
+        ft.ElevatedButton("Nuevo Usuario", icon=ft.Icons.PERSON_ADD, on_click=open_add_user_dialog),
+        list_users
+    ]
     page.update()
 
 def build_audit_view(page, content_column, current_user):
@@ -605,16 +611,10 @@ MODULES = {
     "MUESTREO": {"icon": ft.Icons.SCIENCE, "label": "Muestreo", "func": build_sampling_view},
     "LAB": {"icon": ft.Icons.ASSIGNMENT, "label": "Lab", "func": build_lab_view},
     "CONSULTA": {"icon": ft.Icons.SEARCH, "label": "Consulta", "func": build_query_view},
-    "CORRECCION": {"icon": ft.Icons.EDIT, "label": "Corrección", "func": build_edition_view},
+    "CORRECCION": {"icon": ft.Icons.EDIT, "label": "Corrección (ALCOA)", "func": build_edition_view},
     "USUARIOS": {"icon": ft.Icons.PEOPLE, "label": "Usuarios", "func": build_users_view},
-    "ADMIN": {"icon": ft.Icons.SECURITY, "label": "Admin", "func": build_audit_view},
-}
-
-PERMS = {
-    "ADMIN": list(MODULES.keys()),
-    "CALIDAD": ["CATALOGO", "MUESTREO", "LAB", "CONSULTA", "CORRECCION"],
-    "ALMACEN": ["ALMACEN", "CONSULTA"],
-    "OPERADOR": ["ALMACEN"]
+    "PERFILES": {"icon": ft.Icons.SECURITY, "label": "Perfiles", "func": build_roles_view}, # Nueva vista
+    "ADMIN": {"icon": ft.Icons.ADMIN_PANEL_SETTINGS, "label": "Audit Trail", "func": build_audit_view},
 }
 
 def main(page: ft.Page):
@@ -624,22 +624,46 @@ def main(page: ft.Page):
     nav = ft.NavigationBar(visible=False)
 
     def login(e):
+        # 1. Validar usuario y contraseña
         res = db.execute_query("SELECT id, username, role FROM users WHERE username=%s AND password=%s", (user_tf.value, pass_tf.value), fetch=True)
+        
         if res:
-            current_user.update({"id": res[0][0], "name": res[0][1], "role": res[0][2]})
-            allowed = PERMS.get(current_user["role"], [])
+            role_name = res[0][2]
+            current_user.update({"id": res[0][0], "name": res[0][1], "role": role_name})
             
-            nav.destinations = [ft.NavigationBarDestination(icon=MODULES[k]["icon"], label=MODULES[k]["label"]) for k in allowed if k in MODULES]
+            # 2. Obtener permisos dinámicos desde la tabla ROLES
+            role_data = db.execute_query("SELECT permissions FROM roles WHERE name=%s", (role_name,), fetch=True)
             
-            active_mods = [k for k in allowed if k in MODULES]
+            allowed_modules = []
+            if role_data:
+                # Parsear el JSON de permisos
+                raw_perms = role_data[0][0]
+                allowed_modules = raw_perms if isinstance(raw_perms, list) else json.loads(raw_perms)
+            else:
+                # Fallback por si el rol no existe en la tabla roles (ej: usuarios viejos)
+                # Damos acceso básico si falla
+                allowed_modules = ["ALMACEN"] 
+
+            # 3. Construir Menú
+            nav.destinations = [ft.NavigationBarDestination(icon=MODULES[k]["icon"], label=MODULES[k]["label"]) for k in allowed_modules if k in MODULES]
+            
+            active_mods = [k for k in allowed_modules if k in MODULES]
+            
             def nav_click(e):
-                MODULES[active_mods[e.control.selected_index]]["func"](page, col, current_user)
-                page.update()
+                idx = e.control.selected_index
+                if idx < len(active_mods):
+                    MODULES[active_mods[idx]]["func"](page, col, current_user)
+                    page.update()
             
             nav.on_change = nav_click
             nav.visible = True
             page.clean(); page.add(col); page.navigation_bar = nav
-            if active_mods: MODULES[active_mods[0]]["func"](page, col, current_user)
+            
+            if active_mods: 
+                MODULES[active_mods[0]]["func"](page, col, current_user)
+            else:
+                col.controls = [ft.Text("Su perfil no tiene módulos asignados.", color="red")]
+            
             page.update()
         else:
             page.snack_bar = ft.SnackBar(ft.Text("Error Login")); page.snack_bar.open=True; page.update()
@@ -650,4 +674,3 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
-
