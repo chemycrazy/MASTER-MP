@@ -958,18 +958,18 @@ def build_users_view(page, content_column, current_user):
             # r: [0:id, 1:user, 2:role, 3:locked]
             is_locked = r[3]
             
-            # Icono y color segun estado
-            icon = ft.icons.LOCK if is_locked else ft.icons.PERSON
+            # USO DE STRINGS EN LUGAR DE CONSTANTES PARA EVITAR ERRORES
+            icon_name = "lock" if is_locked else "person"
             icon_color = ft.Colors.RED if is_locked else ft.Colors.BLUE
             subtitle_text = f"Rol: {r[2]} | {'🔴 BLOQUEADO' if is_locked else '🟢 ACTIVO'}"
             
             list_users.controls.append(ft.Card(
                 content=ft.ListTile(
-                    leading=ft.Icon(icon, color=icon_color, size=30),
+                    leading=ft.Icon(name=icon_name, color=icon_color, size=30),
                     title=ft.Text(r[1], weight="bold"),
                     subtitle=ft.Text(subtitle_text),
                     trailing=ft.IconButton(
-                        ft.icons.EDIT, 
+                        icon="edit", # String directo
                         tooltip="Editar / Bloquear", 
                         on_click=lambda e, x=r: edit_user_dialog(x)
                     )
@@ -1019,7 +1019,7 @@ def build_users_view(page, content_column, current_user):
         ft.Row([
             ft.Text("Gestión de Usuarios", size=20, weight="bold"),
             ft.Container(expand=True),
-            ft.ElevatedButton("Nuevo Usuario", icon=ft.icons.PERSON_ADD, on_click=open_add_user_dialog)
+            ft.ElevatedButton("Nuevo Usuario", icon="person_add", on_click=open_add_user_dialog) # String directo
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         ft.Divider(),
         list_users
