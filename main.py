@@ -1104,14 +1104,14 @@ def main(page: ft.Page):
             
             # --- AQUÍ AGREGAMOS LA BARRA SUPERIOR CON LOGOUT ---
             page.appbar = ft.AppBar(
-                leading=ft.Icon(ft.icons.PHARMACY),
+                leading=ft.Icon(ft.Icons.PHARMACY), # Corregido a Mayúscula
                 leading_width=40,
                 title=ft.Text(f"Hola, {current_user['name']}"),
                 center_title=False,
                 bgcolor=ft.Colors.BLUE,
                 color=ft.Colors.WHITE,
                 actions=[
-                    ft.IconButton(ft.icons.LOGOUT, tooltip="Cerrar Sesión", on_click=logout, icon_color=ft.Colors.WHITE)
+                    ft.IconButton(ft.Icons.LOGOUT, tooltip="Cerrar Sesión", on_click=logout, icon_color=ft.Colors.WHITE) # Corregido a Mayúscula
                 ]
             )
 
@@ -1135,12 +1135,12 @@ def main(page: ft.Page):
         # Usamos Refs para poder limpiar los campos fácilmente
         content = ft.Column(
             [
-                ft.Icon(ft.icons.LOCAL_PHARMACY, size=60, color="blue"),
+                ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color="blue"), # Corregido a Mayúscula
                 ft.Text("MASTER MP", size=30, weight="bold"),
                 ft.Text("Iniciar Sesión", size=16),
                 ft.Divider(height=20, color="transparent"),
-                ft.TextField(ref=user_tf, label="Usuario", prefix_icon=ft.icons.PERSON),
-                ft.TextField(ref=pass_tf, label="Contraseña", password=True, can_reveal_password=True, prefix_icon=ft.icons.LOCK),
+                ft.TextField(ref=user_tf, label="Usuario", prefix_icon=ft.Icons.PERSON), # Corregido a Mayúscula
+                ft.TextField(ref=pass_tf, label="Contraseña", password=True, can_reveal_password=True, prefix_icon=ft.Icons.LOCK), # Corregido a Mayúscula
                 ft.ElevatedButton("Entrar", on_click=login, width=200, style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE, color=ft.Colors.WHITE))
             ],
             alignment=ft.MainAxisAlignment.CENTER,
@@ -1153,7 +1153,6 @@ def main(page: ft.Page):
 
     # Arrancar aplicación
     show_login()
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
