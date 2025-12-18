@@ -1,6 +1,7 @@
-flet==0.28
+flet==0.28.3
 psycopg2-binary
 fpdf2
 pandas
 openpyxl
+
 
