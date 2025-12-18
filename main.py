@@ -21,15 +21,17 @@ logger = logging.getLogger(__name__)
 current_user = {"id": None, "name": "GUEST", "role": "GUEST"}
 
 # --- CONEXIÓN A BASE DE DATOS ---
+# Usamos la variable de entorno o la cadena directa si falla
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:MPMASTER57667115@db.rhuudiwamxpfkinpgkzs.supabase.co:5432/postgres")
 
 # --- CLASE DE BASE DE DATOS ---
 class DBManager:
     def __init__(self):
+        # Inicializamos la DB al arrancar (con manejo de errores para no tumbar la app si falla la red)
         try:
             self.init_db()
         except Exception as e:
-            logger.error(f"Error inicializando DB: {e}")
+            logger.error(f"Error inicializando DB (puede ser temporal): {e}")
 
     @contextmanager
     def get_connection(self):
@@ -116,6 +118,7 @@ class DBManager:
             )"""
         ]
         
+        # Crear admin si no existe
         create_admin = """
             INSERT INTO users (username, password, role)
             VALUES ('admin', 'admin', 'ADMIN')
@@ -141,6 +144,7 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
         pdf.add_page()
         pdf.set_font("Arial", "B", 16)
         
+        # Helper para limpiar texto (latin-1)
         def clean(txt): return str(txt).encode('latin-1', 'replace').decode('latin-1')
 
         pdf.cell(0, 10, clean("CERTIFICADO DE ANALISIS"), ln=1, align="C")
@@ -180,6 +184,7 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
             pdf.set_font("Arial", size=10)
             pdf.multi_cell(0, 6, clean(content_dict["Observaciones"]))
 
+        # Output a Base64 para descarga directa
         pdf_bytes = pdf.output(dest='S').encode('latin-1')
         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
 
@@ -251,40 +256,38 @@ def open_profile_dialog(page, mat_id, mat_name):
             refresh()
 
     refresh()
-    dlg = ft.AlertDialog(title=ft.Text(f"Perfil: {mat_name}"), content=ft.Column([ft.Row([dd, tf]), ft.ElevatedButton("Agregar", on_click=add), ft.Divider(), list_col], tight=True))
-    page.open(dlg) # CORREGIDO PARA FLET 0.25+
+    page.dialog = ft.AlertDialog(title=ft.Text(f"Perfil: {mat_name}"), content=ft.Column([ft.Row([dd, tf]), ft.ElevatedButton("Agregar", on_click=add), ft.Divider(), list_col], tight=True))
+    page.dialog.open = True
+    page.update()
 
 def add_material_dialog(page, col, user):
     c, n = ft.TextField(label="Código"), ft.TextField(label="Nombre")
     cat = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("API"), ft.dropdown.Option("EXCIPIENTE")])
-    
     def save(e):
         if c.value and n.value:
             db.execute_query("INSERT INTO materials (code, name, category) VALUES (%s, %s, %s)", (c.value, n.value, cat.value))
-            page.close(dlg) # CORREGIDO
+            page.dialog.open = False
             build_catalog_view(page, col, user)
             page.update()
-            
-    dlg = ft.AlertDialog(title=ft.Text("Nuevo Material"), content=ft.Column([c, n, cat], tight=True), actions=[ft.ElevatedButton("Guardar", on_click=save)])
-    page.open(dlg) # CORREGIDO PARA FLET 0.25+
+    page.dialog = ft.AlertDialog(title=ft.Text("Nuevo Material"), content=ft.Column([c, n, cat], tight=True), actions=[ft.ElevatedButton("Guardar", on_click=save)])
+    page.dialog.open = True
+    page.update()
 
 def add_test_dialog(page, col, user):
     n, m = ft.TextField(label="Nombre"), ft.TextField(label="Método")
     def save(e):
         if n.value:
             db.execute_query("INSERT INTO standard_tests (name, method) VALUES (%s, %s)", (n.value, m.value))
-            page.close(dlg) # CORREGIDO
+            page.dialog.open = False
             build_catalog_view(page, col, user)
             page.update()
-            
-    dlg = ft.AlertDialog(title=ft.Text("Nueva Prueba"), content=ft.Column([n, m], tight=True), actions=[ft.ElevatedButton("Guardar", on_click=save)])
-    page.open(dlg) # CORREGIDO PARA FLET 0.25+
+    page.dialog = ft.AlertDialog(title=ft.Text("Nueva Prueba"), content=ft.Column([n, m], tight=True), actions=[ft.ElevatedButton("Guardar", on_click=save)])
+    page.dialog.open = True
+    page.update()
 
 def build_inventory_view(page, content_column, current_user):
     mats = db.execute_query("SELECT id, name, code FROM materials WHERE is_active=TRUE ORDER BY name", fetch=True) or []
-    mat_opts = [ft.dropdown.Option(str(m[0]), f"{m[1]} ({m[2]})") for m in mats]
-    
-    dd_mat = ft.Dropdown(label="Material", options=mat_opts, expand=True)
+    dd_mat = ft.Dropdown(label="Material", options=[ft.dropdown.Option(str(m[0]), f"{m[1]} ({m[2]})") for m in mats], expand=True)
     tf_li, tf_lv = ft.TextField(label="Lote Interno", expand=True), ft.TextField(label="Lote Prov", expand=True)
     tf_mfg, tf_qty = ft.TextField(label="Fabricante", expand=True), ft.TextField(label="Cantidad (Kg)", expand=True)
     tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", expand=True)
@@ -326,13 +329,14 @@ def build_sampling_view(page, content_column, current_user):
                 new_q = qty - rem
                 db.execute_query("UPDATE inventory SET quantity=%s, status='MUESTREADO' WHERE id=%s", (new_q, iid))
                 log_audit(current_user["name"], "SAMPLING", f"Muestreo {lot}")
-                page.close(dlg) # CORREGIDO
+                page.dialog.open = False
                 build_sampling_view(page, content_column, current_user)
                 page.update()
             except: pass
 
-        dlg = ft.AlertDialog(title=ft.Text(f"Muestreo: {lot}"), content=ft.Column([ft.Text(f"Stock: {qty}"), tf_n, txt_res, tf_rem], tight=True), actions=[ft.ElevatedButton("Confirmar", on_click=confirm)])
-        page.open(dlg) # CORREGIDO
+        page.dialog = ft.AlertDialog(title=ft.Text(f"Muestreo: {lot}"), content=ft.Column([ft.Text(f"Stock: {qty}"), tf_n, txt_res, tf_rem], tight=True), actions=[ft.ElevatedButton("Confirmar", on_click=confirm)])
+        page.dialog.open = True
+        page.update()
 
     for i in items:
         lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(i[1]), subtitle=ft.Text(f"Lote: {i[2]} | Stock: {i[3]}"), leading=ft.Icon(ft.Icons.SCIENCE, color="orange"), trailing=ft.IconButton(ft.Icons.ARROW_FORWARD, on_click=lambda e, x=i: open_sam(x[0], x[1], x[2], x[3])))))
@@ -363,12 +367,13 @@ def build_lab_view(page, content_column, current_user):
                 db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (st, iid))
                 
                 open_pdf_in_browser(page, f"CoA_{lot}.pdf", {"Producto": name, "Lote": lot, "Conclusión": dd_dec.value}, res_list)
-                page.close(dlg) # CORREGIDO
+                page.dialog.open = False
                 build_lab_view(page, content_column, current_user)
                 page.update()
 
-        dlg = ft.AlertDialog(title=ft.Text(f"Análisis {lot}"), content=ft.Column([tf_an] + inputs + [dd_dec], tight=True, scroll=ft.ScrollMode.ALWAYS, height=400), actions=[ft.ElevatedButton("Guardar", on_click=save)])
-        page.open(dlg) # CORREGIDO
+        page.dialog = ft.AlertDialog(title=ft.Text(f"Análisis {lot}"), content=ft.Column([tf_an] + inputs + [dd_dec], tight=True, scroll=ft.ScrollMode.ALWAYS, height=400), actions=[ft.ElevatedButton("Guardar", on_click=save)])
+        page.dialog.open = True
+        page.update()
 
     for p in pending:
         lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(p[1]), subtitle=ft.Text(p[2]), trailing=ft.IconButton(ft.Icons.PLAY_ARROW, on_click=lambda e, x=p: open_lab(x[0], x[3], x[1], x[2])))))
@@ -376,48 +381,147 @@ def build_lab_view(page, content_column, current_user):
     content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
     page.update()
 
+# --- CONSULTA (CORREGIDA) ---
 def build_query_view(page, content_column, current_user):
-    tf_s = ft.TextField(label="Buscar", suffix_icon=ft.Icons.SEARCH)
+    # Campo de búsqueda
+    tf_s = ft.TextField(label="Buscar por Lote o Nombre", suffix_icon=ft.Icons.SEARCH)
+    # Columna de resultados con scroll
     col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
+    # Función para mostrar detalles y el certificado
+    def show_details(data):
+        # data viene del click: [id, code, name, lot_int, status]
+        item_id = data[0]
+        
+        try:
+            # 1. Obtener datos de inventario extra
+            inv_rows = db.execute_query("SELECT manufacturer, lot_vendor, expiry_date FROM inventory WHERE id=%s", (item_id,), fetch=True)
+            inv_data = inv_rows[0] if inv_rows else ["N/A", "N/A", "N/A"]
+
+            # 2. Obtener resultados de laboratorio
+            # Orden: analysis_num (0), conclusion (1), result_data (2), observations (3)
+            lab_data = db.execute_query("SELECT analysis_num, conclusion, result_data, observations FROM lab_results WHERE inventory_id=%s", (item_id,), fetch=True)
+            
+            # Construir lista de información
+            info = [
+                ft.Text(f"Producto: {data[2]}", weight="bold", size=16),
+                ft.Text(f"Lote Interno: {data[3]}", color=ft.Colors.BLUE),
+                ft.Divider(),
+                ft.Text(f"Fabricante: {inv_data[0]}"),
+                ft.Text(f"Lote Prov: {inv_data[1]}"),
+                ft.Text(f"Caducidad: {str(inv_data[2])}"),
+                ft.Divider()
+            ]
+            
+            # Si hay datos de laboratorio, mostramos resultados y botón PDF
+            if lab_data:
+                ld = lab_data[0]
+                info.append(ft.Text(f"Análisis No: {ld[0]}", weight="bold"))
+                
+                # Color del dictamen
+                dictamen_color = ft.Colors.GREEN if ld[1] == "APROBADO" else ft.Colors.RED
+                info.append(ft.Text(f"Dictamen: {ld[1]}", color=dictamen_color, weight="bold", size=16))
+                
+                # Procesar JSON de resultados
+                res_json = {}
+                try:
+                    if isinstance(ld[2], dict):
+                        res_json = ld[2]
+                    elif ld[2]:
+                        res_json = json.loads(ld[2])
+                except Exception as e:
+                    logger.error(f"Error JSON: {e}")
+
+                # Tabla visual de resultados
+                dt = ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Prueba")), ft.DataColumn(ft.Text("Resultado"))],
+                    rows=[]
+                )
+                for k,v in res_json.items():
+                    dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
+                
+                info.append(ft.Container(content=dt, border=ft.border.all(1, ft.Colors.GREY_300), border_radius=5))
+
+                if ld[3]: # Observaciones
+                    info.append(ft.Text(f"Notas: {ld[3]}", italic=True))
+
+                # --- LÓGICA DEL BOTÓN PDF ---
+                def print_copy(e):
+                    # Preparamos la lista para el PDF
+                    res_list = []
+                    for k, v in res_json.items():
+                        # Ponemos "-" en especificación porque es una reimpresión rápida
+                        res_list.append({"test": str(k), "spec": "-", "result": str(v)})
+                    
+                    pdf_content = {
+                        "Producto": str(data[2]), 
+                        "Lote": str(data[3]), 
+                        "Conclusión": str(ld[1]),
+                        "Observaciones": str(ld[3] or "")
+                    }
+                    
+                    success = open_pdf_in_browser(page, f"Certificado_{data[3]}.pdf", pdf_content, res_list)
+                    if success:
+                        page.snack_bar = ft.SnackBar(ft.Text("Generando PDF..."))
+                        page.snack_bar.open = True
+                        page.update()
+
+                # Agregamos el botón
+                info.append(ft.Container(height=10))
+                info.append(ft.ElevatedButton(
+                    "Descargar Certificado", 
+                    icon=ft.Icons.PICTURE_AS_PDF, 
+                    bgcolor=ft.Colors.GREEN, 
+                    color=ft.Colors.WHITE,
+                    on_click=print_copy
+                ))
+            else:
+                # Si no hay laboratorio
+                info.append(ft.Container(
+                    content=ft.Text("⚠️ Este lote no tiene análisis registrado, no se puede generar certificado.", color=ft.Colors.ORANGE),
+                    padding=10, border=ft.border.all(1, ft.Colors.ORANGE), border_radius=5
+                ))
+
+            # Abrir diálogo (Sintaxis Flet 0.25+)
+            dlg = ft.AlertDialog(
+                title=ft.Text("Detalle del Lote"), 
+                content=ft.Column(info, tight=True, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: page.close(dlg))]
+            )
+            page.open(dlg)
+
+        except Exception as ex:
+            logger.error(f"Error en detalle: {ex}")
+            page.snack_bar = ft.SnackBar(ft.Text("Error al cargar detalles"))
+            page.snack_bar.open = True
+            page.update()
+
+    # Función de búsqueda
     def search(e):
-        t = f"%{tf_s.value}%"
-        rows = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.status FROM inventory i JOIN materials m ON i.material_id=m.id WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s", (t, t), fetch=True) or []
-        col.controls = [ft.Card(content=ft.ListTile(
-            title=ft.Text(r[1]), subtitle=ft.Text(f"{r[2]} - {r[3]}"), 
-            leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if r[3]=="LIBERADO" else ft.Colors.ORANGE)
-        )) for r in rows]
+        term = f"%{tf_s.value}%"
+        # Traemos ID, CODIGO, NOMBRE, LOTE, ESTATUS
+        items = db.execute_query(
+            "SELECT i.id, m.code, m.name, i.lot_internal, i.status FROM inventory i JOIN materials m ON i.material_id=m.id WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s", 
+            (term, term), fetch=True
+        ) or []
+        
+        col.controls.clear()
+        if not items:
+            col.controls.append(ft.Text("No se encontraron resultados."))
+            
+        for i in items:
+            # i = [0:id, 1:code, 2:name, 3:lot, 4:status]
+            col.controls.append(ft.Card(content=ft.ListTile(
+                title=ft.Text(i[2]), 
+                subtitle=ft.Text(f"Lote: {i[3]} | {i[4]}"),
+                leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if i[4]=="LIBERADO" else ft.Colors.ORANGE),
+                trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=i: show_details(x))
+            )))
         page.update()
-    
+
     tf_s.on_submit = search
-    content_column.controls = [ft.Text("Consulta", size=20, weight="bold"), tf_s, col]
+    content_column.controls = [ft.Text("Consulta y Certificados", size=20, weight="bold"), tf_s, col]
     page.update()
-
-def build_users_view(page, content_column, current_user):
-    if current_user["role"] != "ADMIN": content_column.controls=[ft.Text("Acceso Denegado")]; page.update(); return
-    
-    lst = ft.Column()
-    def render():
-        rows = db.execute_query("SELECT username, role FROM users", fetch=True) or []
-        lst.controls = [ft.ListTile(title=ft.Text(r[0]), subtitle=ft.Text(r[1]), leading=ft.Icon(ft.Icons.PERSON)) for r in rows]
-        page.update()
-    
-    def add(e):
-        u, p, r = ft.TextField(label="User"), ft.TextField(label="Pass"), ft.Dropdown(options=[ft.dropdown.Option("OPERADOR"), ft.dropdown.Option("ADMIN"), ft.dropdown.Option("CALIDAD")])
-        def save(e): db.execute_query("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (u.value, p.value, r.value)); page.close(dlg); render()
-        dlg = ft.AlertDialog(content=ft.Column([u,p,r], tight=True), actions=[ft.ElevatedButton("Crear", on_click=save)])
-        page.open(dlg) # CORREGIDO
-
-    render()
-    content_column.controls = [ft.Text("Usuarios", size=20, weight="bold"), ft.ElevatedButton("Nuevo", on_click=add), lst]
-    page.update()
-
-def build_audit_view(page, content_column, current_user):
-    rows = db.execute_query("SELECT timestamp, user_name, action, details FROM audit_trail ORDER BY id DESC LIMIT 50", fetch=True) or []
-    lv = ft.ListView(expand=True, controls=[ft.Text(f"{r[0]} | {r[1]}: {r[2]} - {r[3]}") for r in rows])
-    content_column.controls = [ft.Text("Audit Trail", size=20), lv]
-    page.update()
-
 # --- MAIN ---
 MODULES = {
     "CATALOGO": {"icon": ft.Icons.BOOK, "label": "Catálogo", "func": build_catalog_view},
@@ -448,6 +552,7 @@ def main(page: ft.Page):
             current_user.update({"id": res[0][0], "name": res[0][1], "role": res[0][2]})
             allowed = PERMS.get(current_user["role"], [])
             
+            # Sintaxis moderna: NavigationBarDestination
             nav.destinations = [ft.NavigationBarDestination(icon=MODULES[k]["icon"], label=MODULES[k]["label"]) for k in allowed if k in MODULES]
             
             active_mods = [k for k in allowed if k in MODULES]
