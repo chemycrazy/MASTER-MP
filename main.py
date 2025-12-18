@@ -486,31 +486,36 @@ def build_edition_view(page, content_column, current_user):
         # item: [id, material_name, lot_internal, lot_vendor, quantity, expiry_date]
         iid = item[0]
         
-        # --- 1. DATOS DE ALMACÉN (Siempre existen) ---
+        # --- 1. DATOS DE ALMACÉN ---
         tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(item[4]))
         tf_lot_v = ft.TextField(label="Lote Proveedor", value=str(item[3]))
         tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(item[5]))
         
-        # --- 2. DATOS DE LABORATORIO (Pueden no existir) ---
-        # Buscamos si hay análisis para este inventario
+        # --- 2. DATOS DE LABORATORIO ---
+        # Agregamos result_data a la consulta
         lab_row = db.execute_query("""
-            SELECT id, analysis_num, conclusion, bib_reference, reanalysis_date, observations 
+            SELECT id, analysis_num, conclusion, bib_reference, reanalysis_date, observations, result_data 
             FROM lab_results WHERE inventory_id=%s
         """, (iid,), fetch=True)
         
         has_lab = False
         lab_id = None
+        orig_results = {}
+        result_inputs = {} # Diccionario para guardar los controles de los resultados
         
-        # Controles de Lab (se llenarán si hay datos)
+        # Controles Generales de Lab
         tf_an = ft.TextField(label="No. Análisis")
         dd_dec = ft.Dropdown(label="Dictamen", options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")])
         tf_bib = ft.TextField(label="Referencia Bibliográfica")
         tf_reanal = ft.TextField(label="Fecha Reanálisis (YYYY-MM-DD)")
         tf_obs = ft.TextField(label="Observaciones Lab", multiline=True)
 
+        # Contenedor visual para los inputs de resultados
+        results_container = ft.Column()
+
         if lab_row:
             has_lab = True
-            l_data = lab_row[0] # [id, num, concl, ref, reanal, obs]
+            l_data = lab_row[0] # [id, num, concl, ref, reanal, obs, result_data]
             lab_id = l_data[0]
             
             tf_an.value = str(l_data[1])
@@ -518,10 +523,26 @@ def build_edition_view(page, content_column, current_user):
             tf_bib.value = str(l_data[3]) if l_data[3] else ""
             tf_reanal.value = str(l_data[4]) if l_data[4] else ""
             tf_obs.value = str(l_data[5]) if l_data[5] else ""
+            
+            # --- CARGA DINÁMICA DE RESULTADOS ---
+            try:
+                raw_json = l_data[6]
+                if raw_json:
+                    orig_results = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
+                    
+                    results_container.controls.append(ft.Text("Resultados de Pruebas:", weight="bold", size=14))
+                    
+                    for test_name, test_val in orig_results.items():
+                        # Creamos un input para cada prueba
+                        tb = ft.TextField(label=test_name, value=str(test_val), border_color=ft.Colors.BLUE_400)
+                        result_inputs[test_name] = tb
+                        results_container.controls.append(tb)
+            except Exception as e:
+                logger.error(f"Error parseando JSON: {e}")
+                results_container.controls.append(ft.Text("Error cargando resultados detallados", color="red"))
+
         else:
-            # Si no hay lab, deshabilitamos o indicamos
-            tf_an.disabled = True
-            tf_an.value = "Sin Análisis"
+            tf_an.disabled = True; tf_an.value = "Sin Análisis"
             dd_dec.disabled = True
             tf_bib.disabled = True
             tf_reanal.disabled = True
@@ -536,32 +557,29 @@ def build_edition_view(page, content_column, current_user):
         )
         
         def save_changes(e):
-            # Validación ALCOA
             if not tf_reason.value or len(tf_reason.value) < 5:
                 page.snack_bar = ft.SnackBar(ft.Text("⚠️ ALCOA: Debe ingresar una justificación válida."))
-                page.snack_bar.open = True
-                page.update()
-                return
+                page.snack_bar.open = True; page.update(); return
 
             try:
                 changes = []
                 
-                # A) Checar cambios ALMACÉN
+                # A) ALMACÉN
                 if float(tf_qty.value) != float(item[4]): changes.append(f"Qty: {item[4]} -> {tf_qty.value}")
                 if tf_lot_v.value != str(item[3]): changes.append(f"LotV: {item[3]} -> {tf_lot_v.value}")
                 if tf_exp.value != str(item[5]): changes.append(f"Exp: {item[5]} -> {tf_exp.value}")
 
-                # B) Checar cambios LABORATORIO (si aplica)
+                # B) LABORATORIO (Datos Generales)
                 lab_changed = False
+                new_results_json = orig_results.copy() # Copia para modificar
+                
                 if has_lab and lab_row:
-                    orig = lab_row[0] # [id, num, concl, ref, reanal, obs]
-                    # orig[1] es analysis_num
+                    orig = lab_row[0]
                     if tf_an.value != str(orig[1]): 
                         changes.append(f"Análisis: {orig[1]} -> {tf_an.value}"); lab_changed=True
                     
                     if dd_dec.value != str(orig[2]): 
                         changes.append(f"Dictamen: {orig[2]} -> {dd_dec.value}"); lab_changed=True
-                        # Si cambia dictamen, actualizar status inventario
                         new_status = "LIBERADO" if dd_dec.value == "APROBADO" else "RECHAZADO"
                         db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (new_status, iid))
                         changes.append(f"Status Inv: {new_status}")
@@ -574,6 +592,15 @@ def build_edition_view(page, content_column, current_user):
 
                     if tf_obs.value != (str(orig[5]) if orig[5] else ""):
                         changes.append(f"Obs: {orig[5]} -> {tf_obs.value}"); lab_changed=True
+                    
+                    # C) LABORATORIO (Resultados Específicos)
+                    for t_name, t_input in result_inputs.items():
+                        old_val = str(orig_results.get(t_name, ""))
+                        new_val = t_input.value
+                        if old_val != new_val:
+                            changes.append(f"Test '{t_name}': {old_val} -> {new_val}")
+                            new_results_json[t_name] = new_val # Actualizamos el diccionario
+                            lab_changed = True
 
                 if not changes:
                     page.close(dlg); return
@@ -585,43 +612,45 @@ def build_edition_view(page, content_column, current_user):
                     (float(tf_qty.value), tf_lot_v.value, tf_exp.value, iid)
                 )
                 
-                # 2. Update Lab (si hubo cambios)
+                # 2. Update Lab (incluyendo el JSON nuevo)
                 if lab_changed and has_lab:
-                    # Manejo de fecha nula
                     reanal_val = tf_reanal.value if tf_reanal.value else None
                     db.execute_query("""
                         UPDATE lab_results 
-                        SET analysis_num=%s, conclusion=%s, bib_reference=%s, reanalysis_date=%s, observations=%s
+                        SET analysis_num=%s, conclusion=%s, bib_reference=%s, reanalysis_date=%s, observations=%s, result_data=%s
                         WHERE id=%s
-                    """, (tf_an.value, dd_dec.value, tf_bib.value, reanal_val, tf_obs.value, lab_id))
+                    """, (tf_an.value, dd_dec.value, tf_bib.value, reanal_val, tf_obs.value, json.dumps(new_results_json), lab_id))
 
-                # 3. Registro ALCOA en Audit Trail
+                # 3. Registro Audit Trail
                 log_details = f"CORRECCION DATOS | {'; '.join(changes)} | Justificación: {tf_reason.value}"
                 log_audit(current_user["name"], "EDIT_RECORD", log_details)
                 
                 page.snack_bar = ft.SnackBar(ft.Text("✅ Registro corregido y auditado."), bgcolor="green")
                 page.snack_bar.open = True
                 page.close(dlg)
-                search_lot(None) # Refrescar lista
+                search_lot(None)
                 page.update()
 
             except Exception as ex:
                 logger.error(f"Error edit: {ex}")
-                page.snack_bar = ft.SnackBar(ft.Text(f"Error: Verifique fechas o formatos"))
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error al guardar. Verifique datos."))
                 page.snack_bar.open = True
                 page.update()
 
-        # Contenido del diálogo organizado
+        # Contenido del diálogo
         content_dlg = ft.Column([
             ft.Text("Datos de Almacén:", weight="bold", color=ft.Colors.BLUE),
             tf_qty, tf_lot_v, tf_exp,
             ft.Divider(),
-            ft.Text("Datos de Laboratorio:", weight="bold", color=ft.Colors.BLUE),
-            tf_an if has_lab else ft.Text("No aplica (Sin resultados)"),
+            ft.Text("Datos Generales Lab:", weight="bold", color=ft.Colors.BLUE),
+            tf_an if has_lab else ft.Text("No aplica"),
             dd_dec if has_lab else ft.Container(),
             tf_bib if has_lab else ft.Container(),
             tf_reanal if has_lab else ft.Container(),
             tf_obs if has_lab else ft.Container(),
+            ft.Divider(),
+            # Aquí insertamos los campos dinámicos de las pruebas
+            results_container if has_lab else ft.Container(), 
             ft.Divider(),
             tf_reason
         ], tight=True, scroll=ft.ScrollMode.ALWAYS, height=500)
@@ -638,7 +667,6 @@ def build_edition_view(page, content_column, current_user):
 
     def search_lot(e):
         term = f"%{tf_search.value}%"
-        # Buscamos datos generales de inventario
         rows = db.execute_query(
             "SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.quantity, i.expiry_date FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.lot_internal ILIKE %s", 
             (term,), fetch=True
