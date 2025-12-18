@@ -380,148 +380,79 @@ def build_lab_view(page, content_column, current_user):
     
     content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
     page.update()
-
-# --- CONSULTA (CORREGIDA) ---
-def build_query_view(page, content_column, current_user):
-    # Campo de búsqueda
-    tf_s = ft.TextField(label="Buscar por Lote o Nombre", suffix_icon=ft.Icons.SEARCH)
-    # Columna de resultados con scroll
-    col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
-
-    # Función para mostrar detalles y el certificado
-    def show_details(data):
-        # data viene del click: [id, code, name, lot_int, status]
-        item_id = data[0]
+# --- FUNCIÓN PDF CORREGIDA PARA FPDF2 ---
+def open_pdf_in_browser(page, filename, content_dict, test_results):
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 16) # Usamos Helvetica para evitar advertencias
         
-        try:
-            # 1. Obtener datos de inventario extra
-            inv_rows = db.execute_query("SELECT manufacturer, lot_vendor, expiry_date FROM inventory WHERE id=%s", (item_id,), fetch=True)
-            inv_data = inv_rows[0] if inv_rows else ["N/A", "N/A", "N/A"]
+        # Helper para caracteres
+        def clean(txt): 
+            return str(txt).encode('latin-1', 'replace').decode('latin-1')
 
-            # 2. Obtener resultados de laboratorio
-            # Orden: analysis_num (0), conclusion (1), result_data (2), observations (3)
-            lab_data = db.execute_query("SELECT analysis_num, conclusion, result_data, observations FROM lab_results WHERE inventory_id=%s", (item_id,), fetch=True)
-            
-            # Construir lista de información
-            info = [
-                ft.Text(f"Producto: {data[2]}", weight="bold", size=16),
-                ft.Text(f"Lote Interno: {data[3]}", color=ft.Colors.BLUE),
-                ft.Divider(),
-                ft.Text(f"Fabricante: {inv_data[0]}"),
-                ft.Text(f"Lote Prov: {inv_data[1]}"),
-                ft.Text(f"Caducidad: {str(inv_data[2])}"),
-                ft.Divider()
-            ]
-            
-            # Si hay datos de laboratorio, mostramos resultados y botón PDF
-            if lab_data:
-                ld = lab_data[0]
-                info.append(ft.Text(f"Análisis No: {ld[0]}", weight="bold"))
-                
-                # Color del dictamen
-                dictamen_color = ft.Colors.GREEN if ld[1] == "APROBADO" else ft.Colors.RED
-                info.append(ft.Text(f"Dictamen: {ld[1]}", color=dictamen_color, weight="bold", size=16))
-                
-                # Procesar JSON de resultados
-                res_json = {}
-                try:
-                    if isinstance(ld[2], dict):
-                        res_json = ld[2]
-                    elif ld[2]:
-                        res_json = json.loads(ld[2])
-                except Exception as e:
-                    logger.error(f"Error JSON: {e}")
+        pdf.cell(0, 10, text=clean("CERTIFICADO DE ANALISIS"), new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.set_font("Helvetica", size=10)
+        pdf.ln(5)
 
-                # Tabla visual de resultados
-                dt = ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Prueba")), ft.DataColumn(ft.Text("Resultado"))],
-                    rows=[]
-                )
-                for k,v in res_json.items():
-                    dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
-                
-                info.append(ft.Container(content=dt, border=ft.border.all(1, ft.Colors.GREY_300), border_radius=5))
+        for key, value in content_dict.items():
+            if key not in ["Observaciones", "Conclusión"]:
+                pdf.set_font("Helvetica", "B", 10)
+                pdf.cell(50, 8, text=clean(f"{key}:"), border=0)
+                pdf.set_font("Helvetica", size=10)
+                pdf.cell(0, 8, text=clean(value), new_x="LMARGIN", new_y="NEXT", border=0)
 
-                if ld[3]: # Observaciones
-                    info.append(ft.Text(f"Notas: {ld[3]}", italic=True))
+        if "Conclusión" in content_dict:
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(50, 8, text="Dictamen:", border=0)
+            pdf.set_font("Helvetica", size=10)
+            pdf.cell(0, 8, text=clean(content_dict["Conclusión"]), new_x="LMARGIN", new_y="NEXT", border=0)
 
-                # --- LÓGICA DEL BOTÓN PDF ---
-                def print_copy(e):
-                    # Preparamos la lista para el PDF
-                    res_list = []
-                    for k, v in res_json.items():
-                        # Ponemos "-" en especificación porque es una reimpresión rápida
-                        res_list.append({"test": str(k), "spec": "-", "result": str(v)})
-                    
-                    pdf_content = {
-                        "Producto": str(data[2]), 
-                        "Lote": str(data[3]), 
-                        "Conclusión": str(ld[1]),
-                        "Observaciones": str(ld[3] or "")
-                    }
-                    
-                    success = open_pdf_in_browser(page, f"Certificado_{data[3]}.pdf", pdf_content, res_list)
-                    if success:
-                        page.snack_bar = ft.SnackBar(ft.Text("Generando PDF..."))
-                        page.snack_bar.open = True
-                        page.update()
-
-                # Agregamos el botón
-                info.append(ft.Container(height=10))
-                info.append(ft.ElevatedButton(
-                    "Descargar Certificado", 
-                    icon=ft.Icons.PICTURE_AS_PDF, 
-                    bgcolor=ft.Colors.GREEN, 
-                    color=ft.Colors.WHITE,
-                    on_click=print_copy
-                ))
-            else:
-                # Si no hay laboratorio
-                info.append(ft.Container(
-                    content=ft.Text("⚠️ Este lote no tiene análisis registrado, no se puede generar certificado.", color=ft.Colors.ORANGE),
-                    padding=10, border=ft.border.all(1, ft.Colors.ORANGE), border_radius=5
-                ))
-
-            # Abrir diálogo (Sintaxis Flet 0.25+)
-            dlg = ft.AlertDialog(
-                title=ft.Text("Detalle del Lote"), 
-                content=ft.Column(info, tight=True, scroll=ft.ScrollMode.ALWAYS, height=500, width=400),
-                actions=[ft.TextButton("Cerrar", on_click=lambda e: page.close(dlg))]
-            )
-            page.open(dlg)
-
-        except Exception as ex:
-            logger.error(f"Error en detalle: {ex}")
-            page.snack_bar = ft.SnackBar(ft.Text("Error al cargar detalles"))
-            page.snack_bar.open = True
-            page.update()
-
-    # Función de búsqueda
-    def search(e):
-        term = f"%{tf_s.value}%"
-        # Traemos ID, CODIGO, NOMBRE, LOTE, ESTATUS
-        items = db.execute_query(
-            "SELECT i.id, m.code, m.name, i.lot_internal, i.status FROM inventory i JOIN materials m ON i.material_id=m.id WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s", 
-            (term, term), fetch=True
-        ) or []
+        pdf.ln(5)
         
-        col.controls.clear()
-        if not items:
-            col.controls.append(ft.Text("No se encontraron resultados."))
-            
-        for i in items:
-            # i = [0:id, 1:code, 2:name, 3:lot, 4:status]
-            col.controls.append(ft.Card(content=ft.ListTile(
-                title=ft.Text(i[2]), 
-                subtitle=ft.Text(f"Lote: {i[3]} | {i[4]}"),
-                leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if i[4]=="LIBERADO" else ft.Colors.ORANGE),
-                trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=i: show_details(x))
-            )))
-        page.update()
+        # Tabla
+        pdf.set_fill_color(240, 240, 240)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(60, 8, clean("Prueba"), 1, fill=True)
+        pdf.cell(70, 8, clean("Especificación"), 1, fill=True)
+        pdf.cell(60, 8, clean("Resultado"), 1, new_x="LMARGIN", new_y="NEXT", fill=True)
 
-    tf_s.on_submit = search
-    content_column.controls = [ft.Text("Consulta y Certificados", size=20, weight="bold"), tf_s, col]
-    page.update()
+        pdf.set_font("Helvetica", size=10)
+        for test in test_results:
+            pdf.cell(60, 8, clean(test.get('test', '')), 1)
+            pdf.cell(70, 8, clean(test.get('spec', '')), 1)
+            pdf.cell(60, 8, clean(test.get('result', '')), 1, new_x="LMARGIN", new_y="NEXT")
+
+        pdf.ln(10)
+        if "Observaciones" in content_dict and content_dict["Observaciones"]:
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(0, 8, clean("Observaciones Adicionales:"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", size=10)
+            pdf.multi_cell(0, 6, clean(content_dict["Observaciones"]))
+
+        # --- CORRECCIÓN CRÍTICA AQUÍ ---
+        # fpdf2 devuelve 'bytearray'. No necesitamos .encode('latin-1')
+        pdf_bytes = pdf.output() 
+        
+        # Convertimos directamente a base64
+        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        # Descarga
+        page.run_js(f"""
+            var link = document.createElement('a');
+            link.href = "data:application/pdf;base64,{b64_pdf}";
+            link.download = "{filename}";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        """)
+        return True
+
+    except Exception as e:
+        logger.error(f"Error PDF: {e}")
+        print(f"Error PDF: {e}")
+        return False
+
 # --- MAIN ---
 MODULES = {
     "CATALOGO": {"icon": ft.Icons.BOOK, "label": "Catálogo", "func": build_catalog_view},
