@@ -881,42 +881,147 @@ def build_roles_view(page, content_column, current_user):
     page.update()
 
 def build_users_view(page, content_column, current_user):
-    # Gestión de usuarios vinculados a roles dinámicos
+    # Seguridad: Solo ADMIN puede ver esto
+    if current_user["role"] != "ADMIN": 
+        content_column.controls=[ft.Text("Acceso Denegado: Se requiere rol ADMIN", color="red", size=20)]
+        page.update()
+        return
+    
     list_users = ft.Column()
     
-    def render_users():
-        rows = db.execute_query("SELECT username, role FROM users", fetch=True) or []
-        list_users.controls = [ft.ListTile(title=ft.Text(r[0]), subtitle=ft.Text(f"Perfil: {r[1]}"), leading=ft.Icon(ft.Icons.PERSON)) for r in rows]
-        page.update()
-    
-    def open_add_user_dialog(e):
-        # Obtener lista de roles disponibles de la BD
+    # --- FUNCION PARA EDITAR USUARIO ---
+    def edit_user_dialog(user_data):
+        # user_data: [id, username, role, is_locked]
+        uid, uname, urole, ulocked = user_data
+        
+        # Proteccion: No editar al superadmin
+        if uname == "admin":
+            page.snack_bar = ft.SnackBar(ft.Text("No se puede modificar al superusuario 'admin'."))
+            page.snack_bar.open = True
+            page.update()
+            return
+
+        # Traer roles disponibles para el dropdown
         roles_db = db.execute_query("SELECT name FROM roles", fetch=True) or []
         role_options = [ft.dropdown.Option(r[0]) for r in roles_db]
 
-        u, p = ft.TextField(label="Usuario"), ft.TextField(label="Contraseña", password=True)
+        # Controles
+        dd_role = ft.Dropdown(label="Perfil / Rol", options=role_options, value=urole)
+        sw_lock = ft.Switch(label="Bloquear Acceso", value=ulocked, active_color=ft.Colors.RED)
+        
+        def update_user(e):
+            if dd_role.value:
+                try:
+                    db.execute_query(
+                        "UPDATE users SET role=%s, is_locked=%s WHERE id=%s", 
+                        (dd_role.value, sw_lock.value, uid)
+                    )
+                    
+                    action_detail = f"Editó usuario '{uname}': Rol={dd_role.value}, Bloqueado={sw_lock.value}"
+                    log_audit(current_user["name"], "USER_EDIT", action_detail)
+                    
+                    page.close(dlg)
+                    render_users() # Refrescar lista
+                    page.snack_bar = ft.SnackBar(ft.Text(f"Usuario {uname} actualizado"), bgcolor="green")
+                    page.snack_bar.open = True
+                    page.update()
+                except Exception as ex:
+                    logger.error(f"Error update user: {ex}")
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text("El rol es obligatorio"))
+                page.snack_bar.open = True
+                page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Editar Usuario: {uname}"),
+            content=ft.Column([
+                ft.Text("Modificar Permisos y Acceso:", size=12),
+                dd_role,
+                ft.Divider(),
+                sw_lock
+            ], tight=True, height=200),
+            actions=[
+                ft.ElevatedButton("Cancelar", on_click=lambda e: page.close(dlg)),
+                ft.ElevatedButton("Guardar Cambios", on_click=update_user)
+            ]
+        )
+        page.open(dlg)
+
+    # --- RENDERIZADO DE LISTA ---
+    def render_users():
+        # Traemos ID, Username, Role y Status de Bloqueo
+        rows = db.execute_query("SELECT id, username, role, is_locked FROM users ORDER BY username", fetch=True) or []
+        
+        list_users.controls.clear()
+        
+        for r in rows:
+            # r: [0:id, 1:user, 2:role, 3:locked]
+            is_locked = r[3]
+            
+            # Icono y color segun estado
+            icon = ft.icons.LOCK if is_locked else ft.icons.PERSON
+            icon_color = ft.Colors.RED if is_locked else ft.Colors.BLUE
+            subtitle_text = f"Rol: {r[2]} | {'🔴 BLOQUEADO' if is_locked else '🟢 ACTIVO'}"
+            
+            list_users.controls.append(ft.Card(
+                content=ft.ListTile(
+                    leading=ft.Icon(icon, color=icon_color, size=30),
+                    title=ft.Text(r[1], weight="bold"),
+                    subtitle=ft.Text(subtitle_text),
+                    trailing=ft.IconButton(
+                        ft.icons.EDIT, 
+                        tooltip="Editar / Bloquear", 
+                        on_click=lambda e, x=r: edit_user_dialog(x)
+                    )
+                )
+            ))
+        page.update()
+    
+    # --- CREAR NUEVO USUARIO ---
+    def open_add_user_dialog(e):
+        roles_db = db.execute_query("SELECT name FROM roles", fetch=True) or []
+        role_options = [ft.dropdown.Option(r[0]) for r in roles_db]
+
+        u = ft.TextField(label="Usuario")
+        p = ft.TextField(label="Contraseña", password=True, can_reveal_password=True)
         dd_role = ft.Dropdown(label="Seleccionar Perfil", options=role_options)
 
         def save_user(e):
             if u.value and p.value and dd_role.value:
-                db.execute_query("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (u.value, p.value, dd_role.value))
-                page.close(dlg)
-                render_users()
-                log_audit(current_user["name"], "CREATE_USER", f"Creado usuario {u.value} con rol {dd_role.value}")
+                try:
+                    db.execute_query("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (u.value, p.value, dd_role.value))
+                    page.close(dlg)
+                    render_users()
+                    log_audit(current_user["name"], "CREATE_USER", f"Creado usuario {u.value} con rol {dd_role.value}")
+                    page.snack_bar = ft.SnackBar(ft.Text("Usuario creado exitosamente"), bgcolor="green")
+                    page.snack_bar.open=True
+                    page.update()
+                except Exception as ex:
+                    page.snack_bar = ft.SnackBar(ft.Text(f"Error (posible usuario duplicado): {ex}"))
+                    page.snack_bar.open=True
+                    page.update()
             else:
-                page.snack_bar = ft.SnackBar(ft.Text("Todos los campos son obligatorios")); page.snack_bar.open=True; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text("Todos los campos son obligatorios"))
+                page.snack_bar.open=True
+                page.update()
 
         dlg = ft.AlertDialog(
             title=ft.Text("Nuevo Usuario"),
-            content=ft.Column([u, p, dd_role], tight=True),
+            content=ft.Column([u, p, dd_role], tight=True, height=250),
             actions=[ft.ElevatedButton("Crear Usuario", on_click=save_user)]
         )
         page.open(dlg)
 
+    # Inicializar
     render_users()
+    
     content_column.controls = [
-        ft.Text("Gestión de Usuarios", size=20, weight="bold"),
-        ft.ElevatedButton("Nuevo Usuario", icon=ft.Icons.PERSON_ADD, on_click=open_add_user_dialog),
+        ft.Row([
+            ft.Text("Gestión de Usuarios", size=20, weight="bold"),
+            ft.Container(expand=True),
+            ft.ElevatedButton("Nuevo Usuario", icon=ft.icons.PERSON_ADD, on_click=open_add_user_dialog)
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Divider(),
         list_users
     ]
     page.update()
