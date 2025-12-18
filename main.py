@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 current_user = {"id": None, "name": "GUEST", "role": "GUEST"}
 
 # --- BASE DE DATOS ---
-# NOTA: Recomiendo usar os.environ para la URL real en producción por seguridad
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:MPMASTER57667115@db.rhuudiwamxpfkinpgkzs.supabase.co:5432/postgres")
 
 class DBManager:
@@ -135,8 +134,7 @@ db = DBManager()
 def log_audit(user, action, details):
     db.execute_query("INSERT INTO audit_trail (user_name, action, details) VALUES (%s, %s, %s)", (user, action, details))
 
-# --- FUNCIÓN PDF CORREGIDA ---
-# Aquí está el cambio clave: Usamos page.launch_url con Base64
+# --- FUNCIÓN PDF ---
 def open_pdf_in_browser(page, filename, content_dict, test_results):
     print(f"Generando PDF: {filename}")
     try:
@@ -186,12 +184,14 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
             pdf.set_font("Helvetica", size=10)
             pdf.multi_cell(0, 6, text=clean(content_dict["Observaciones"]))
 
-        # --- GENERACIÓN DE BYTES Y DESCARGA ---
-        # 1. Output a string latin-1
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        # 2. Convertir a Base64
+        # --- GENERACIÓN DE BYTES Y DESCARGA (COMPATIBLE) ---
+        raw_output = pdf.output() 
+        if isinstance(raw_output, str):
+            pdf_bytes = raw_output.encode('latin-1')
+        else:
+            pdf_bytes = raw_output
+
         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        # 3. Lanzar descarga en navegador (Funciona en Web y Desktop)
         page.launch_url(f"data:application/pdf;base64,{b64_pdf}")
         return True
 
@@ -365,7 +365,6 @@ def build_lab_view(page, content_column, current_user):
                 st = "LIBERADO" if dd_dec.value == "APROBADO" else "RECHAZADO"
                 db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (st, iid))
                 
-                # --- AQUÍ LLAMAMOS AL PDF CON LA LÓGICA CORREGIDA ---
                 open_pdf_in_browser(page, f"CoA_{lot}.pdf", {"Producto": name, "Lote": lot, "Conclusión": dd_dec.value}, res_list)
                 
                 page.close(dlg)
@@ -379,6 +378,119 @@ def build_lab_view(page, content_column, current_user):
        lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(p[1]), subtitle=ft.Text(p[2]), trailing=ft.IconButton(ft.Icons.PLAY_ARROW, on_click=lambda e, x=p: open_lab(x[0], x[3], x[1], x[2])))))
     
     content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
+    page.update()
+
+# --- NUEVO MÓDULO: CORRECCIÓN ALCOA ---
+def build_edition_view(page, content_column, current_user):
+    # Verificación de Rol
+    if current_user["role"] not in ["ADMIN", "CALIDAD"]:
+        content_column.controls = [ft.Text("Acceso Restringido: Requiere rol ADMIN o CALIDAD", color="red", size=20, weight="bold")]
+        page.update()
+        return
+
+    tf_search = ft.TextField(label="Buscar Lote para Corregir", suffix_icon=ft.Icons.SEARCH)
+    results_col = ft.Column()
+
+    def edit_record(item):
+        # item: [id, material_name, lot_internal, lot_vendor, quantity, expiry_date]
+        iid = item[0]
+        
+        # Campos de edición (Almacén y Datos Críticos)
+        tf_qty = ft.TextField(label="Cantidad (Kg)", value=str(item[4]))
+        tf_lot_v = ft.TextField(label="Lote Proveedor", value=str(item[3]))
+        tf_exp = ft.TextField(label="Caducidad (YYYY-MM-DD)", value=str(item[5]))
+        
+        # CAMPO OBLIGATORIO ALCOA
+        tf_reason = ft.TextField(
+            label="Justificación del Cambio (Requerido para ALCOA)", 
+            multiline=True, 
+            icon=ft.Icons.WARNING,
+            helper_text="Explique detalladamente por qué se modifica el registro original."
+        )
+        
+        def save_changes(e):
+            # Validación ALCOA: Sin justificación no hay cambio
+            if not tf_reason.value or len(tf_reason.value) < 5:
+                page.snack_bar = ft.SnackBar(ft.Text("⚠️ ALCOA: Debe ingresar una justificación válida."))
+                page.snack_bar.open = True
+                page.update()
+                return
+
+            try:
+                # Detectar cambios para el Audit Trail
+                changes = []
+                if float(tf_qty.value) != float(item[4]): changes.append(f"Qty: {item[4]} -> {tf_qty.value}")
+                if tf_lot_v.value != str(item[3]): changes.append(f"LotV: {item[3]} -> {tf_lot_v.value}")
+                if tf_exp.value != str(item[5]): changes.append(f"Exp: {item[5]} -> {tf_exp.value}")
+
+                if not changes:
+                    page.close(dlg); return
+
+                # Update Seguro
+                db.execute_query(
+                    "UPDATE inventory SET quantity=%s, lot_vendor=%s, expiry_date=%s WHERE id=%s",
+                    (float(tf_qty.value), tf_lot_v.value, tf_exp.value, iid)
+                )
+                
+                # Registro ALCOA en Audit Trail
+                log_details = f"CORRECCION DATOS | {'; '.join(changes)} | Justificación: {tf_reason.value}"
+                log_audit(current_user["name"], "EDIT_RECORD", log_details)
+                
+                page.snack_bar = ft.SnackBar(ft.Text("✅ Registro corregido y auditado."), bgcolor="green")
+                page.snack_bar.open = True
+                page.close(dlg)
+                search_lot(None) # Refrescar lista
+                page.update()
+
+            except Exception as ex:
+                logger.error(f"Error edit: {ex}")
+                page.snack_bar = ft.SnackBar(ft.Text("Error al guardar corrección"))
+                page.snack_bar.open = True
+                page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Corregir Lote: {item[2]}"),
+            content=ft.Column([
+                ft.Text("Modifique solo los datos erróneos:", size=12),
+                tf_qty, tf_lot_v, tf_exp,
+                ft.Divider(),
+                tf_reason
+            ], tight=True),
+            actions=[
+                ft.ElevatedButton("Cancelar", on_click=lambda e: page.close(dlg)),
+                ft.ElevatedButton("Guardar Corrección", on_click=save_changes, bgcolor=ft.Colors.RED, color=ft.Colors.WHITE)
+            ]
+        )
+        page.open(dlg)
+
+    def search_lot(e):
+        term = f"%{tf_search.value}%"
+        # Buscamos datos generales de inventario
+        rows = db.execute_query(
+            "SELECT i.id, m.name, i.lot_internal, i.lot_vendor, i.quantity, i.expiry_date FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.lot_internal ILIKE %s", 
+            (term,), fetch=True
+        ) or []
+        
+        results_col.controls.clear()
+        if not rows:
+            results_col.controls.append(ft.Text("No se encontró el lote."))
+        
+        for r in rows:
+            results_col.controls.append(ft.Card(content=ft.ListTile(
+                leading=ft.Icon(ft.Icons.EDIT, color="orange"),
+                title=ft.Text(f"{r[1]} ({r[2]})"),
+                subtitle=ft.Text(f"Qty: {r[4]} | Exp: {r[5]}"),
+                trailing=ft.ElevatedButton("Corregir", on_click=lambda e, x=r: edit_record(x))
+            )))
+        page.update()
+
+    tf_search.on_submit = search_lot
+    content_column.controls = [
+        ft.Text("Corrección de Registros (ALCOA)", size=20, weight="bold", color="red"),
+        ft.Text("Todos los cambios son auditados. Ingrese motivo.", size=12, italic=True),
+        tf_search,
+        results_col
+    ]
     page.update()
 
 def build_query_view(page, content_column, current_user):
@@ -493,13 +605,14 @@ MODULES = {
     "MUESTREO": {"icon": ft.Icons.SCIENCE, "label": "Muestreo", "func": build_sampling_view},
     "LAB": {"icon": ft.Icons.ASSIGNMENT, "label": "Lab", "func": build_lab_view},
     "CONSULTA": {"icon": ft.Icons.SEARCH, "label": "Consulta", "func": build_query_view},
+    "CORRECCION": {"icon": ft.Icons.EDIT, "label": "Corrección", "func": build_edition_view},
     "USUARIOS": {"icon": ft.Icons.PEOPLE, "label": "Usuarios", "func": build_users_view},
     "ADMIN": {"icon": ft.Icons.SECURITY, "label": "Admin", "func": build_audit_view},
 }
 
 PERMS = {
     "ADMIN": list(MODULES.keys()),
-    "CALIDAD": ["CATALOGO", "MUESTREO", "LAB", "CONSULTA"],
+    "CALIDAD": ["CATALOGO", "MUESTREO", "LAB", "CONSULTA", "CORRECCION"],
     "ALMACEN": ["ALMACEN", "CONSULTA"],
     "OPERADOR": ["ALMACEN"]
 }
@@ -537,3 +650,4 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port, host="0.0.0.0")
+
