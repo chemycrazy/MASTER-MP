@@ -539,44 +539,125 @@ def build_query_view(page, content_column, current_user):
     def show_details(data):
         item_id = data[0]
         try:
+            # 1. Datos de Inventario
             inv_rows = db.execute_query("SELECT manufacturer, lot_vendor, expiry_date, quantity FROM inventory WHERE id=%s", (item_id,), fetch=True)
             inv = inv_rows[0] if inv_rows else ["N/A", "N/A", "N/A", 0]
-            lab = db.execute_query("SELECT analysis_num, conclusion, result_data, observations FROM lab_results WHERE inventory_id=%s", (item_id,), fetch=True)
             
-            info = [ft.Text(f"Producto: {data[1]}", weight="bold", size=16), ft.Text(f"Lote Interno: {data[2]}", color=ft.Colors.BLUE, weight="bold"), ft.Divider(), ft.Text(f"Fabricante: {inv[0]}"), ft.Text(f"Lote Prov: {inv[1]}"), ft.Text(f"Caducidad: {inv[2]}"), ft.Text(f"Cantidad: {inv[3]} kg"), ft.Divider()]
+            # 2. Datos de Laboratorio (CORREGIDO: Ahora traemos todo)
+            # Indices: 0:Num, 1:Concl, 2:Data, 3:Obs, 4:Analista, 5:Ref, 6:Reanalisis, 7:FechaAnalisis
+            lab = db.execute_query("""
+                SELECT analysis_num, conclusion, result_data, observations, 
+                       analyst, bib_reference, reanalysis_date, date_analyzed 
+                FROM lab_results WHERE inventory_id=%s
+            """, (item_id,), fetch=True)
+            
+            # Cabecera del reporte
+            info = [
+               ft.Text(f"Producto: {data[1]}", weight="bold", size=18, color=ft.Colors.BLUE_GREY_900),
+               ft.Text(f"Lote Interno: {data[2]}", color=ft.Colors.BLUE, weight="bold", size=16),
+               ft.Divider(),
+               ft.Row([ft.Text("Fabricante:", weight="bold"), ft.Text(f"{inv[0]}")], spacing=5),
+               ft.Row([ft.Text("Lote Prov:", weight="bold"), ft.Text(f"{inv[1]}")], spacing=5),
+               ft.Row([ft.Text("Caducidad:", weight="bold"), ft.Text(f"{inv[2]}")], spacing=5),
+               ft.Row([ft.Text("Cantidad:", weight="bold"), ft.Text(f"{inv[3]} kg")], spacing=5),
+               ft.Divider(),
+               ft.Text("Resultados de Calidad", size=16, weight="bold")
+            ]
 
             if lab:
                 l_res = lab[0]
-                info.append(ft.Text(f"Análisis: {l_res[0]}", weight="bold"))
-                info.append(ft.Text(f"Dictamen: {l_res[1]}", color=ft.Colors.GREEN if l_res[1]=="APROBADO" else ft.Colors.RED, weight="bold"))
-                try:
-                    res_json = l_res[2] if isinstance(l_res[2], dict) else json.loads(l_res[2])
-                    dt = ft.DataTable(columns=[ft.DataColumn(ft.Text("Prueba")), ft.DataColumn(ft.Text("Resultado"))], rows=[])
-                    for k,v in res_json.items(): dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
-                    info.append(dt)
-                    res_list = [{"test": k, "spec": "-", "result": str(v)} for k,v in res_json.items()]
-                except: res_list = []
+                # Variables para facilitar lectura
+                analisis_num = l_res[0]
+                dictamen = l_res[1]
+                raw_json = l_res[2]
+                obs = l_res[3]
+                analista = l_res[4]
+                referencia = l_res[5]
+                reanalisis = l_res[6]
+                fecha_analisis = l_res[7]
 
-                if l_res[3]: info.append(ft.Text(f"Obs: {l_res[3]}", italic=True))
+                # Información General del Análisis
+                info.append(ft.Row([ft.Text("No. Análisis:", weight="bold"), ft.Text(f"{analisis_num}")], spacing=5))
+                info.append(ft.Row([ft.Text("Analista:", weight="bold"), ft.Text(f"{analista}")], spacing=5))
+                info.append(ft.Row([ft.Text("Fecha Análisis:", weight="bold"), ft.Text(f"{fecha_analisis}")], spacing=5))
+                
+                if referencia:
+                    info.append(ft.Row([ft.Text("Referencia:", weight="bold"), ft.Text(f"{referencia}")], spacing=5))
+                if reanalisis:
+                    info.append(ft.Row([ft.Text("Reanálisis:", weight="bold"), ft.Text(f"{reanalisis}")], spacing=5))
+
+                dictamen_color = ft.Colors.GREEN if dictamen=="APROBADO" else ft.Colors.RED
+                info.append(ft.Container(
+                    content=ft.Text(f"DICTAMEN: {dictamen}", weight="bold", color=ft.Colors.WHITE, size=16),
+                    bgcolor=dictamen_color,
+                    padding=10,
+                    border_radius=5,
+                    alignment=ft.alignment.center
+                ))
+                
+                # Tabla de Resultados
+                try:
+                    res_json = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
+                    dt = ft.DataTable(
+                        columns=[ft.DataColumn(ft.Text("Prueba")), ft.DataColumn(ft.Text("Resultado"))],
+                        rows=[],
+                        border=ft.border.all(1, ft.Colors.GREY_300),
+                        vertical_lines=ft.border.all(1, ft.Colors.GREY_300),
+                    )
+                    for k,v in res_json.items():
+                       dt.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(k))), ft.DataCell(ft.Text(str(v)))]))
+                    info.append(dt)
+                    
+                    # Preparar datos para PDF
+                    res_list = [{"test": k, "spec": "-", "result": str(v)} for k,v in res_json.items()]
+                except:
+                    res_list = []
+
+                if obs: 
+                    info.append(ft.Text("Observaciones:", weight="bold"))
+                    info.append(ft.Text(f"{obs}", italic=True))
+
+                # Botón PDF Actualizado con TODOS los datos
                 def print_pdf(e):
-                    content = {"Producto": data[1], "Lote": data[2], "Conclusión": l_res[1], "Observaciones": l_res[3]}
+                    content = {
+                        "Producto": data[1], 
+                        "Lote": data[2], 
+                        "Conclusión": dictamen, 
+                        "Observaciones": obs,
+                        "Referencia": referencia if referencia else "N/A",
+                        "Reanálisis": str(reanalisis) if reanalisis else "N/A",
+                        "Analista": analista
+                    }
                     if open_pdf_in_browser(page, f"Cert_{data[2]}.pdf", content, res_list):
-                        page.snack_bar = ft.SnackBar(ft.Text("Descargando PDF...")); page.snack_bar.open = True; page.update()
+                        page.snack_bar = ft.SnackBar(ft.Text("Descargando PDF..."))
+                        page.snack_bar.open = True
+                        page.update()
+
                 info.append(ft.ElevatedButton("Descargar Certificado", icon=ft.Icons.PICTURE_AS_PDF, bgcolor=ft.Colors.GREEN, color=ft.Colors.WHITE, on_click=print_pdf))
             else:
-                info.append(ft.Text("⚠️ Sin análisis de laboratorio", color=ft.Colors.ORANGE))
+                info.append(ft.Text("⚠️ Pendiente de Análisis", color=ft.Colors.ORANGE, size=16, weight="bold"))
 
-            dlg = ft.AlertDialog(title=ft.Text("Detalle"), content=ft.Column(info, tight=True, scroll=ft.ScrollMode.ALWAYS, height=450), actions=[ft.TextButton("Cerrar", on_click=lambda e: page.close(dlg))])
+            dlg = ft.AlertDialog(title=ft.Text("Detalle del Lote"), content=ft.Column(info, tight=True, scroll=ft.ScrollMode.ALWAYS, height=500), actions=[ft.TextButton("Cerrar", on_click=lambda e: page.close(dlg))])
             page.open(dlg)
-        except Exception as ex: logger.error(f"Error detalle: {ex}")
+
+        except Exception as ex:
+            logger.error(f"Error detalle: {ex}")
 
     def search(e):
         t = f"%{tf_s.value}%"
         rows = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.status FROM inventory i JOIN materials m ON i.material_id=m.id WHERE m.name ILIKE %s OR i.lot_internal ILIKE %s", (t, t), fetch=True) or []
+        
         col.controls.clear()
-        if not rows: col.controls.append(ft.Text("No se encontraron resultados."))
+        if not rows:
+           col.controls.append(ft.Text("No se encontraron resultados."))
+
         for r in rows:
-           col.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(r[1]), subtitle=ft.Text(f"{r[2]} - {r[3]}"), leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if r[3]=="LIBERADO" else ft.Colors.ORANGE), trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=r: show_details(x)))))
+           col.controls.append(ft.Card(content=ft.ListTile(
+               title=ft.Text(r[1]), 
+               subtitle=ft.Text(f"{r[2]} - {r[3]}"), 
+               leading=ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN if r[3]=="LIBERADO" else ft.Colors.ORANGE),
+               trailing=ft.IconButton(ft.Icons.VISIBILITY, tooltip="Ver Detalle", on_click=lambda e, x=r: show_details(x))
+            )))
         page.update()
     
     tf_s.on_submit = search
