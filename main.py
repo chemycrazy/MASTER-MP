@@ -191,31 +191,27 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
         pdf_bytes = pdf.output() 
         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
 
-from flask import Flask, make_response
+from fastapi import FastAPI, Response
 from fpdf import FPDF
 
-app = Flask(__name__)
+app = FastAPI()
 
-@app.route('/descargar-pdf')
+@app.get("/descargar-pdf")
 def descargar():
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     pdf.cell(200, 10, txt="Certificado 567", ln=1, align="C")
 
-    # 1. Generamos el string del PDF en memoria (dest='S')
-    # FPDF devuelve un string latin-1, hay que codificarlo a bytes
+    # 1. Generar bytes
     pdf_bytes = pdf.output(dest='S').encode('latin-1')
 
-    # 2. Creamos la respuesta HTTP
-    response = make_response(pdf_bytes)
-    
-    # 3. Le decimos al navegador que es un PDF y que debe descargarse
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = 'attachment; filename=Cert_567.pdf'
-    
-    return response
-# --- VISTAS ---
+    # 2. Retornar la respuesta directa
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Cert_567.pdf"}
+    )# --- VISTAS ---
 
 def build_catalog_view(page, content_column, current_user):
     tab_content = ft.Column(expand=True)
