@@ -356,40 +356,120 @@ def build_sampling_view(page, content_column, current_user):
     page.update()
 
 def build_lab_view(page, content_column, current_user):
+    # Buscamos materiales que están en estado 'MUESTREADO'
     pending = db.execute_query("SELECT i.id, m.name, i.lot_internal, i.material_id FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status='MUESTREADO'", fetch=True) or []
     lv = ft.ListView(expand=True, spacing=10)
 
     def open_lab(iid, mat_id, name, lot):
+        # Buscamos el perfil de pruebas (specs)
         prof = db.execute_query("SELECT st.name, mp.specification FROM material_profile mp JOIN standard_tests st ON mp.test_id=st.id WHERE mp.material_id=%s", (mat_id,), fetch=True) or []
+        
         if not prof: 
-            page.snack_bar = ft.SnackBar(ft.Text("Sin perfil de pruebas")); page.snack_bar.open=True; page.update(); return
+            page.snack_bar = ft.SnackBar(ft.Text("⚠️ Sin perfil de pruebas configurado para este material.")); page.snack_bar.open=True; page.update(); return
 
+        # --- CAMPOS DE RESULTADOS (Dinámicos según perfil) ---
         inputs = [ft.TextField(label=f"{p[0]} ({p[1]})", data={"k": p[0], "s": p[1]}) for p in prof]
-        tf_an = ft.TextField(label="No. Análisis")
-        dd_dec = ft.Dropdown(label="Dictamen", options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")])
+        
+        # --- CAMPOS FALTANTES AGREGADOS ---
+        tf_an = ft.TextField(label="No. Análisis / Reporte")
+        tf_bib = ft.TextField(label="Referencia Bibliográfica (Ej: FEUM 13.0)")
+        tf_reanal = ft.TextField(label="Fecha Reanálisis (YYYY-MM-DD)", icon=ft.Icons.CALENDAR_MONTH)
+        tf_obs = ft.TextField(label="Observaciones Generales", multiline=True)
+        
+        dd_dec = ft.Dropdown(label="Dictamen Final", options=[ft.dropdown.Option("APROBADO"), ft.dropdown.Option("RECHAZADO")])
         
         def save(e):
             if dd_dec.value and tf_an.value:
+                # Recopilar resultados dinámicos
                 res_json = {i.data['k']: i.value for i in inputs}
+                
+                # Lista para el PDF
                 res_list = [{"test": i.data['k'], "spec": i.data['s'], "result": i.value} for i in inputs]
-                db.execute_query("INSERT INTO lab_results (inventory_id, analyst, result_data, conclusion, analysis_num) VALUES (%s, %s, %s, %s, %s)",
-                                 (iid, current_user["name"], json.dumps(res_json), dd_dec.value, tf_an.value))
-                st = "LIBERADO" if dd_dec.value == "APROBADO" else "RECHAZADO"
-                db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (st, iid))
                 
-                open_pdf_in_browser(page, f"CoA_{lot}.pdf", {"Producto": name, "Lote": lot, "Conclusión": dd_dec.value}, res_list)
-                
-                page.close(dlg)
-                build_lab_view(page, content_column, current_user)
-                page.update()
+                try:
+                    # --- INSERT CORREGIDO: AHORA INCLUYE LOS CAMPOS FALTANTES ---
+                    query = """
+                        INSERT INTO lab_results 
+                        (inventory_id, analyst, result_data, conclusion, analysis_num, bib_reference, reanalysis_date, observations) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    # Manejo de fecha vacía (para que no falle SQL si el usuario no pone fecha)
+                    reanal_val = tf_reanal.value if tf_reanal.value else None
 
-        dlg = ft.AlertDialog(title=ft.Text(f"Análisis {lot}"), content=ft.Column([tf_an] + inputs + [dd_dec], tight=True, scroll=ft.ScrollMode.ALWAYS, height=400), actions=[ft.ElevatedButton("Guardar", on_click=save)])
+                    db.execute_query(query, (
+                        iid, 
+                        current_user["name"], # El analista es el usuario actual
+                        json.dumps(res_json), 
+                        dd_dec.value, 
+                        tf_an.value,
+                        tf_bib.value,
+                        reanal_val,
+                        tf_obs.value
+                    ))
+                    
+                    # Actualizar estado del inventario
+                    st = "LIBERADO" if dd_dec.value == "APROBADO" else "RECHAZADO"
+                    db.execute_query("UPDATE inventory SET status=%s WHERE id=%s", (st, iid))
+                    
+                    # Log de auditoría
+                    log_audit(current_user["name"], "LAB_ANALYSIS", f"Análisis {tf_an.value} para lote {lot} - {dd_dec.value}")
+                    
+                    # Generar PDF con todos los datos
+                    full_content = {
+                        "Producto": name, 
+                        "Lote": lot, 
+                        "Conclusión": dd_dec.value,
+                        "Referencia": tf_bib.value,
+                        "Reanálisis": tf_reanal.value if tf_reanal.value else "N/A",
+                        "Observaciones": tf_obs.value,
+                        "Analista": current_user["name"]
+                    }
+                    
+                    open_pdf_in_browser(page, f"CoA_{lot}.pdf", full_content, res_list)
+                    
+                    page.close(dlg)
+                    build_lab_view(page, content_column, current_user)
+                    page.snack_bar = ft.SnackBar(ft.Text("Resultados guardados correctamente"), bgcolor="green"); page.snack_bar.open=True
+                    page.update()
+                
+                except Exception as ex:
+                    logger.error(f"Error guardando laboratorio: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text(f"Error al guardar: Verifique formato de fecha (YYYY-MM-DD)")); page.snack_bar.open=True; page.update()
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text("Campos obligatorios: No. Análisis y Dictamen")); page.snack_bar.open=True; page.update()
+
+        # Diálogo con scroll para que quepan todos los campos
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Análisis de Laboratorio: {lot}"),
+            content=ft.Column(
+                [
+                    ft.Text("Resultados de Pruebas:", weight="bold"),
+                    *inputs,
+                    ft.Divider(),
+                    ft.Text("Datos del Informe:", weight="bold"),
+                    tf_an,
+                    tf_bib, 
+                    tf_reanal,
+                    tf_obs,
+                    dd_dec
+                ], 
+                tight=True, 
+                scroll=ft.ScrollMode.ALWAYS, 
+                height=500  # Altura fija para evitar desbordes
+            ),
+            actions=[ft.ElevatedButton("Guardar y Emitir CoA", on_click=save)]
+        )
         page.open(dlg)
 
     for p in pending:
-       lv.controls.append(ft.Card(content=ft.ListTile(title=ft.Text(p[1]), subtitle=ft.Text(p[2]), trailing=ft.IconButton(ft.Icons.PLAY_ARROW, on_click=lambda e, x=p: open_lab(x[0], x[3], x[1], x[2])))))
+       lv.controls.append(ft.Card(content=ft.ListTile(
+           title=ft.Text(p[1]), 
+           subtitle=ft.Text(f"Lote: {p[2]}"), 
+           leading=ft.Icon(ft.Icons.SCIENCE, color="blue"), 
+           trailing=ft.IconButton(ft.Icons.PLAY_ARROW, on_click=lambda e, x=p: open_lab(x[0], x[3], x[1], x[2]))
+        )))
     
-    content_column.controls = [ft.Text("Laboratorio", size=20, weight="bold"), lv]
+    content_column.controls = [ft.Text("Laboratorio - Pendientes", size=20, weight="bold"), lv]
     page.update()
 
 def build_edition_view(page, content_column, current_user):
