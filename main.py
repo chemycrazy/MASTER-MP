@@ -1050,31 +1050,47 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.ADAPTIVE
     col = ft.Column(expand=True)
     nav = ft.NavigationBar(visible=False)
+    
+    # Variables de control de login (las definimos aqui para usarlas en show_login)
+    user_tf = ft.Ref[ft.TextField]()
+    pass_tf = ft.Ref[ft.TextField]()
 
+    # --- FUNCIÓN CERRAR SESIÓN ---
+    def logout(e):
+        # 1. Limpiar usuario global
+        current_user.update({"id": None, "name": "GUEST", "role": "GUEST"})
+        
+        # 2. Limpiar UI
+        page.clean()
+        page.navigation_bar.visible = False
+        page.appbar = None # Quitar la barra superior
+        
+        # 3. Mostrar Login de nuevo
+        show_login()
+        page.update()
+
+    # --- FUNCIÓN LOGIN ---
     def login(e):
-        # 1. Validar usuario y contraseña
-        res = db.execute_query("SELECT id, username, role FROM users WHERE username=%s AND password=%s", (user_tf.value, pass_tf.value), fetch=True)
+        u_val = user_tf.current.value
+        p_val = pass_tf.current.value
+        
+        res = db.execute_query("SELECT id, username, role FROM users WHERE username=%s AND password=%s", (u_val, p_val), fetch=True)
         
         if res:
             role_name = res[0][2]
             current_user.update({"id": res[0][0], "name": res[0][1], "role": role_name})
             
-            # 2. Obtener permisos dinámicos desde la tabla ROLES
+            # Obtener permisos
             role_data = db.execute_query("SELECT permissions FROM roles WHERE name=%s", (role_name,), fetch=True)
-            
             allowed_modules = []
             if role_data:
-                # Parsear el JSON de permisos
                 raw_perms = role_data[0][0]
                 allowed_modules = raw_perms if isinstance(raw_perms, list) else json.loads(raw_perms)
             else:
-                # Fallback por si el rol no existe en la tabla roles (ej: usuarios viejos)
-                # Damos acceso básico si falla
                 allowed_modules = ["ALMACEN"] 
 
-            # 3. Construir Menú
+            # Configurar Navegación
             nav.destinations = [ft.NavigationBarDestination(icon=MODULES[k]["icon"], label=MODULES[k]["label"]) for k in allowed_modules if k in MODULES]
-            
             active_mods = [k for k in allowed_modules if k in MODULES]
             
             def nav_click(e):
@@ -1085,7 +1101,24 @@ def main(page: ft.Page):
             
             nav.on_change = nav_click
             nav.visible = True
-            page.clean(); page.add(col); page.navigation_bar = nav
+            
+            # --- AQUÍ AGREGAMOS LA BARRA SUPERIOR CON LOGOUT ---
+            page.appbar = ft.AppBar(
+                leading=ft.Icon(ft.icons.PHARMACY),
+                leading_width=40,
+                title=ft.Text(f"Hola, {current_user['name']}"),
+                center_title=False,
+                bgcolor=ft.Colors.BLUE,
+                color=ft.Colors.WHITE,
+                actions=[
+                    ft.IconButton(ft.icons.LOGOUT, tooltip="Cerrar Sesión", on_click=logout, icon_color=ft.Colors.WHITE)
+                ]
+            )
+
+            # Limpiar pantalla y cargar dashboard
+            page.clean()
+            page.add(col)
+            page.navigation_bar = nav
             
             if active_mods: 
                 MODULES[active_mods[0]]["func"](page, col, current_user)
@@ -1094,10 +1127,32 @@ def main(page: ft.Page):
             
             page.update()
         else:
-            page.snack_bar = ft.SnackBar(ft.Text("Error Login")); page.snack_bar.open=True; page.update()
+            page.snack_bar = ft.SnackBar(ft.Text("Error: Usuario o contraseña incorrectos")); page.snack_bar.open=True; page.update()
 
-    user_tf, pass_tf = ft.TextField(label="User"), ft.TextField(label="Pass", password=True)
-    page.add(ft.Column([ft.Icon(ft.Icons.LOCAL_PHARMACY, size=60, color="blue"), ft.Text("LOGIN"), user_tf, pass_tf, ft.ElevatedButton("Entrar", on_click=login)], alignment=ft.MainAxisAlignment.CENTER, expand=True))
+    # --- PANTALLA DE LOGIN REUTILIZABLE ---
+    def show_login():
+        page.clean()
+        # Usamos Refs para poder limpiar los campos fácilmente
+        content = ft.Column(
+            [
+                ft.Icon(ft.icons.LOCAL_PHARMACY, size=60, color="blue"),
+                ft.Text("MASTER MP", size=30, weight="bold"),
+                ft.Text("Iniciar Sesión", size=16),
+                ft.Divider(height=20, color="transparent"),
+                ft.TextField(ref=user_tf, label="Usuario", prefix_icon=ft.icons.PERSON),
+                ft.TextField(ref=pass_tf, label="Contraseña", password=True, can_reveal_password=True, prefix_icon=ft.icons.LOCK),
+                ft.ElevatedButton("Entrar", on_click=login, width=200, style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE, color=ft.Colors.WHITE))
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=20
+        )
+        # Centramos todo en la página
+        page.add(ft.Container(content, expand=True, alignment=ft.alignment.center))
+        page.update()
+
+    # Arrancar aplicación
+    show_login()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
