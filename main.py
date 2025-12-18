@@ -191,19 +191,30 @@ def open_pdf_in_browser(page, filename, content_dict, test_results):
         pdf_bytes = pdf.output() 
         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
 
-        page.run_js(f"""
-            var link = document.createElement('a');
-            link.href = "data:application/pdf;base64,{b64_pdf}";
-            link.download = "{filename}";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        """)
-        return True
-    except Exception as e:
-        logger.error(f"❌ ERROR PDF: {e}")
-        return False
+from flask import Flask, make_response
+from fpdf import FPDF
 
+app = Flask(__name__)
+
+@app.route('/descargar-pdf')
+def descargar():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Certificado 567", ln=1, align="C")
+
+    # 1. Generamos el string del PDF en memoria (dest='S')
+    # FPDF devuelve un string latin-1, hay que codificarlo a bytes
+    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+
+    # 2. Creamos la respuesta HTTP
+    response = make_response(pdf_bytes)
+    
+    # 3. Le decimos al navegador que es un PDF y que debe descargarse
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = 'attachment; filename=Cert_567.pdf'
+    
+    return response
 # --- VISTAS ---
 
 def build_catalog_view(page, content_column, current_user):
